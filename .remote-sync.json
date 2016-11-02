@@ -1,0 +1,16 @@
+{
+  "uploadOnSave": false,
+  "useAtomicWrites": false,
+  "deleteLocal": false,
+  "hostname": "192.168.241.130",
+  "port": "22",
+  "target": "./",
+  "ignore": [
+    ".remote-sync.json",
+    ".git/**"
+  ],
+  "username": "student",
+  "password": "password",
+  "watch": [],
+  "transport": "scp"
+}
