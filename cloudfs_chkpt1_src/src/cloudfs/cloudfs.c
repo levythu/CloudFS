@@ -54,6 +54,7 @@ void *cloudfs_init(struct fuse_conn_info *conn UNUSED)
 
 void cloudfs_destroy(void *data UNUSED) {
   cloud_destroy();
+  fclose(logFile);
 }
 
 /*
@@ -77,6 +78,10 @@ struct fuse_operations cloudfs_operations = {
     .getattr        = cloudfsGetAttr,
     .mkdir          = cloudfsMkdir,
     .readdir        = cloudfsReadDir,
+    .rmdir          = cloudfsRmDir,
+    .truncate       = cloudfsTruncate,
+    .statfs         = cloudfsStatfs,
+    .unlink         = cloudfsUnlink,
     .destroy        = cloudfs_destroy
 };
 
