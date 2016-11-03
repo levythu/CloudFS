@@ -10,9 +10,11 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/statvfs.h>
+#include <stdbool.h>
 
 #include "cloudfs.h"
 #include "fsfunc.h"
+#include "hashtable.h"
 
 #define UNUSED __attribute__((unused))
 
