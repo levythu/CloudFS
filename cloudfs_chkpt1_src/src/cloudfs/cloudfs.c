@@ -51,6 +51,9 @@ static int UNUSED cloudfs_error(char *error_str)
 void *cloudfs_init(struct fuse_conn_info *conn UNUSED)
 {
   cloud_init(state_.hostname);
+    cloud_create_bucket(CONTAINER_NAME);
+    fprintf(logFile, "Created container\n");
+    fflush(logFile);
   return NULL;
 }
 
@@ -91,6 +94,7 @@ struct fuse_operations cloudfs_operations = {
     .fsync          = cloudfsFsync,
     .read           = cloudfsRead,
     .write          = cloudfsWrite,
+    .chmod          = cloudfsChmod,
     .destroy        = cloudfs_destroy
 };
 

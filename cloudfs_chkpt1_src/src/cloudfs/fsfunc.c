@@ -22,11 +22,11 @@
 
 #define UNUSED __attribute__((unused))
 
-#define XATTR_ON_CLOUD "cloudfs-on-cloud"
+#define XATTR_ON_CLOUD "user.cloudfs.on.cloud"
 #define XATTR_ON_CLOUD_NOV "//notInTheCloud"
-#define XATTR_M_TIME "cloudfs-mtime"
-#define XATTR_A_TIME "cloudfs-atime"
-#define XATTR_SIZE "cloudfs-size"
+#define XATTR_M_TIME "user.cloudfs.mtime"
+#define XATTR_A_TIME "user.cloudfs.atime"
+#define XATTR_SIZE "user.cloudfs.size"
 
 FILE *logFile=NULL;
 struct cloudfs_state* fsConfig=NULL;
@@ -41,7 +41,7 @@ static int cloudfs_error(char *error_str)
     if (errno==0) return -1;
     int retval = -errno;
 
-    fprintf(logFile, "[error]\t CloudFS Error: %s\n", error_str);
+    fprintf(logFile, "[error]\t CloudFS Error: %s(%d)\n", error_str, errno);
     fflush(logFile);
 
     /* FUSE always returns -errno to caller (yes, it is negative errno!) */
@@ -72,6 +72,7 @@ int onCloud(const char *filename) {
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
     if (len==-1) {
         if (errno==ENODATA) return 0;
+        cloudfs_error("onCloud error");
         return -1;
     }
     attrBuf[len]=0;
@@ -136,6 +137,8 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
     return 0;
 }
 
+#define IGNORE_PATHNAME "/"
+#define IGNORE_FILENAME "lost+found"
 int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUSED off_t offset, UNUSED struct fuse_file_info *fi) {
     fprintf(logFile, "[readdir]\t%s\n", pathname);
     fflush(logFile);
@@ -145,7 +148,10 @@ int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUS
 
     struct dirent *ep;
     if (dir) {
-        while ((ep=readdir(dir))) filler(buf, ep->d_name, NULL, 0);
+        while ((ep=readdir(dir))) {
+            if (strcmp(ep->d_name, IGNORE_FILENAME)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
+            filler(buf, ep->d_name, NULL, 0);
+        }
     } else {
         closedir(dir);
         return cloudfs_error("readdir error");
@@ -237,6 +243,17 @@ int cloudfsUTimens(const char *pathname, const struct timespec tv[2]) {
     return 0;
 }
 
+int cloudfsChmod(const char * pathname, mode_t mode) {
+    fprintf(logFile, "[chmod]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+    int ret=chmod(target, mode);
+    free(target);
+    if (ret>=0) return ret;
+    return cloudfs_error("chmod error");
+}
+
+
 int cloudfsUnlink(const char *pathname) {
     fprintf(logFile, "[unlink]\t%s\n", pathname);
     fflush(logFile);
@@ -256,6 +273,7 @@ int ensureFileExist(const char *filename) {
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
     if (len<0) {
         if (errno==ENODATA) return 0;
+        cloudfs_error("ensureFileExist error");
         return -1;
     }
     attrBuf[len]=0;
@@ -332,6 +350,7 @@ int disposeFile(const char *filename) {
     fclose(infile);
     if (s!=S3StatusOK) return -1;
 
+    if (truncate(filename, 0)<0) return cloudfs_error("disposeFile: truncate error");
     if (setxattr(filename, XATTR_ON_CLOUD, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     return 0;
 }
@@ -359,7 +378,7 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     if (ret<0) return cloudfs_error("open error");
     ofr->refCount++;
     fi->fh=ret;
-    return ret;
+    return 0;
 }
 
 int cloudfsRelease(const char *pathname, struct fuse_file_info *fi) {
@@ -408,7 +427,7 @@ int cloudfsRead(UNUSED const char *pathname, char *buf, size_t size, off_t offse
     return transferred;
 }
 
-int cloudfsWrite(UNUSED const char* pathname, char *buf, size_t size, off_t offset, struct fuse_file_info* fi) {
+int cloudfsWrite(UNUSED const char* pathname, const char *buf, size_t size, off_t offset, struct fuse_file_info* fi) {
     fprintf(logFile, "[write]\t%s\n", pathname);
     fflush(logFile);
     if (lseek(fi->fh, offset, SEEK_SET)==-1) return cloudfs_error("write error");

@@ -14,7 +14,8 @@ extern int cloudfsOpen(const char *pathname, struct fuse_file_info *fi);
 extern int cloudfsRelease(const char *pathname, struct fuse_file_info *fi);
 extern int cloudfsFsync(const char* pathname, int isdatasync, struct fuse_file_info* fi);
 extern int cloudfsRead(const char *pathname, char *buf, size_t size, off_t offset, struct fuse_file_info *fi);
-extern int cloudfsWrite(const char* path, char *buf, size_t size, off_t offset, struct fuse_file_info* fi);
+extern int cloudfsWrite(const char* path, const char *buf, size_t size, off_t offset, struct fuse_file_info* fi);
+extern int cloudfsChmod(const char * pathname, mode_t mode);
 
 extern FILE *logFile;
 extern struct cloudfs_state* fsConfig;
