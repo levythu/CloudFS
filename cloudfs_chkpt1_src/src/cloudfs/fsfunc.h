@@ -11,5 +11,8 @@ extern int cloudfsUnlink(const char *pathname);
 
 extern FILE *logFile;
 extern struct cloudfs_state* fsConfig;
+extern Hashtable openfileTable;
+
+#define CONTAINER_NAME "test1"
 
 #endif

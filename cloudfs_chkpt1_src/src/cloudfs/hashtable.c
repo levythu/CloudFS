@@ -17,6 +17,7 @@ void HRelease(Hashtable obj) {
         hashNode* p=obj.table[i];
         while (p) {
             hashNode* q=p->next;
+            free(p->k);
             free(p);
             p=q;
         }
@@ -31,12 +32,19 @@ hashNode* searchInList(hashNode* listHead, const char* key) {
     }
     return NULL;
 }
+char* dupString(const char* original) {
+    size_t len=strlen(original);
+    len++;
+    char* ret=(char*)malloc(len*sizeof(char));
+    memcpy(ret, original, len*sizeof(char));
+    return ret;
+}
 
 bool HPutIfAbsent(Hashtable obj, const char* key, void* v) {
     int bucket=HCalc(key)%BIG_PRIME;
     if (searchInList(obj.table[bucket], key)==NULL) {
         hashNode* nt=(hashNode*)malloc(sizeof(hashNode));
-        nt->k=key;
+        nt->k=dupString(key);
         nt->v=v;
         nt->next=obj.table[bucket];
         obj.table[bucket]=nt;
@@ -59,6 +67,7 @@ void* HRemove(Hashtable obj, const char* key) {
         if (strcmp(listHead->k, key)==0) {
             *pp=p->next;
             void* t=p->v;
+            free(p->k);
             free(p);
             return t;
         }

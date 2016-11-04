@@ -17,6 +17,7 @@
 #include "cloudapi.h"
 #include "cloudfs.h"
 #include "dedup.h"
+#include "hashtable.h"
 #include "fsfunc.h"
 
 #define UNUSED __attribute__((unused))
@@ -99,6 +100,7 @@ int cloudfs_start(struct cloudfs_state *state,
 
   state_  = *state;
   fsConfig=&state_;
+  openfileTable=NewHashTable();
 
   logFile=fopen("/tmp/cloudfs.log", "w+");
 

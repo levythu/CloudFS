@@ -11,27 +11,34 @@
 #include <string.h>
 #include <sys/statvfs.h>
 #include <stdbool.h>
+#include <sys/time.h>
+#include <fcntl.h>
 
+#include "hashtable.h"
+#include "libs3.h"
 #include "cloudfs.h"
 #include "fsfunc.h"
-#include "hashtable.h"
 
 #define UNUSED __attribute__((unused))
 
+#define XATTR_ON_CLOUD "cloudfs-on-cloud"
+#define XATTR_ON_CLOUD_NOV "//notInTheCloud"
+#define XATTR_M_TIME "cloudfs-mtime"
+#define XATTR_A_TIME "cloudfs-atime"
+#define XATTR_SIZE "cloudfs-size"
+
 FILE *logFile=NULL;
 struct cloudfs_state* fsConfig=NULL;
+Hashtable openfileTable;
+
+typedef struct _openedFile {
+    int refCount;
+} openedFile;
 
 static int cloudfs_error(char *error_str)
 {
+    if (errno==0) return -1;
     int retval = -errno;
-
-    // TODO:
-    //
-    // You may want to add your own logging/debugging functions for printing
-    // error messages. For example:
-    //
-    // debug_msg("ERROR happened. %s\n", error_str, strerror(errno));
-    //
 
     fprintf(logFile, "[error]\t CloudFS Error: %s\n", error_str);
     fflush(logFile);
@@ -58,14 +65,74 @@ int cloudfsMkdir(const char *pathname, mode_t mode) {
     return cloudfs_error("mkdir error");
 }
 
+// 1 for on, 0 for off, -1 for error
+int onCloud(const char *filename) {
+    char attrBuf[4096];
+    int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
+    if (len<0) {
+        if (errno==ENOATTR) return 0;
+        return -1;
+    }
+    attrBuf[len]=0;
+    if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
+        return 0;
+    }
+    return 1;
+}
 int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
     fprintf(logFile, "[getattr]\t%s\n", pathname);
     fflush(logFile);
     char* target=getSSDPosition(pathname);
     int ret=stat(target, tstat);
+    if (ret<0) {
+        free(target);
+        return cloudfs_error("getattr error");
+    }
+
+    int oc=onCloud(target);
+    if (oc<0) {
+        free(target);
+        return cloudfs_error("getattr error");
+    }
+    if (oc==0) return;
+
+    char attrBuf[4096];
+    int len;
+    len=getxattr(target, XATTR_A_TIME, attrBuf, 4096);
+    if (len<0) {
+        free(target);
+        return cloudfs_error("getattr error");
+    }
+    attrBuf[len]=0;
+    long ss1, ns1;
+    sscanf(attrBuf, "%ld %ld", &ss1, &ns1);
+
+    len=getxattr(target, XATTR_M_TIME, attrBuf, 4096);
+    if (len<0) {
+        free(target);
+        return cloudfs_error("getattr error");
+    }
+    attrBuf[len]=0;
+    long ss2, ns2;
+    sscanf(attrBuf, "%ld %ld", &ss2, &ns2);
+
+    len=getxattr(target, XATTR_SIZE, attrBuf, 4096);
+    if (len<0) {
+        free(target);
+        return cloudfs_error("getattr error");
+    }
+    attrBuf[len]=0;
+    long sz;
+    sscanf(attrBuf, "%ld", &sz);
+
     free(target);
-    if (ret>=0) return ret;
-    return cloudfs_error("getattr error");
+
+    tstat->st_size=sz;
+    tstat->st_atim.seconds=ss1;
+    tstat->st_atim.nanoseconds=ss1;
+    tstat->st_mtim.seconds=ss2;
+    tstat->st_mtim.nanoseconds=ss2;
+    return 0;
 }
 
 int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUSED off_t offset, UNUSED struct fuse_file_info *fi) {
@@ -101,10 +168,27 @@ int cloudfsTruncate(const char *pathname, off_t length) {
     fprintf(logFile, "[truncate]\t%s\n", pathname);
     fflush(logFile);
     char* target=getSSDPosition(pathname);
-    int ret=truncate(target, length);
+
+    int oc=onCloud(target);
+    if (oc<0) {
+        free(target);
+        return cloudfs_error("truncate error");
+    }
+    if (oc==0) {
+        int ret=truncate(target, length);
+        free(target);
+        if (ret>=0) return ret;
+        return cloudfs_error("truncate error");
+    }
+
+    char attrBuf[4096];
+    sprintf(attrBuf, "%ld", (long)length);
+    if (setxattr(target, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) {
+        free(target);
+        return cloudfs_error("disposeFile: put xattr error");
+    }
     free(target);
-    if (ret>=0) return ret;
-    return cloudfs_error("truncate error");
+    return 0;
 }
 
 int cloudfsStatfs(const char *pathname, struct statvfs *buf) {
@@ -117,6 +201,41 @@ int cloudfsStatfs(const char *pathname, struct statvfs *buf) {
     return cloudfs_error("statfs error");
 }
 
+int cloudfsMknod(const char *pathname, mode_t mode, dev_t dev) {
+    fprintf(logFile, "[mknod]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+    int ret=mknod(target, mode, dev);
+    free(target);
+    if (ret>=0) return ret;
+    return cloudfs_error("mknod error");
+}
+
+int cloudfsUTimens(const char *pathname, const struct timespec tv[2]) {
+    fprintf(logFile, "[utimens]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+
+    if (utimensat(0, target, tv, 0)<0) {
+        free(target);
+        return cloudfs_error("timens: utime error");
+    }
+    char attrBuf[4096];
+    sprintf(attrBuf, "%ld %ld", (long)tv[0].seconds, (long)tv[0].nanoseconds);
+    if (setxattr(target, XATTR_A_TIME, attrBuf, strlen(attrBuf), 0)<0) {
+        free(target);
+        return cloudfs_error("timens: put xattr error");
+    }
+    sprintf(attrBuf, "%ld %ld", (long)tv[1].seconds, (long)tv[1].nanoseconds);
+    if (setxattr(target, XATTR_M_TIME, attrBuf, strlen(attrBuf), 0)<0) {
+        free(target);
+        return cloudfs_error("timens: put xattr error");
+    }
+
+    free(target);
+    return 0;
+}
+
 int cloudfsUnlink(const char *pathname) {
     fprintf(logFile, "[unlink]\t%s\n", pathname);
     fflush(logFile);
@@ -125,4 +244,149 @@ int cloudfsUnlink(const char *pathname) {
     free(target);
     if (ret>=0) return ret;
     return cloudfs_error("unlink error");
+}
+
+static FILE *outfile;
+int get_buffer(const char *buffer, int bufferLength) {
+    return fwrite(buffer, 1, bufferLength, outfile);
+}
+int ensureFileExist(const char *filename) {
+    char attrBuf[4096];
+    int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
+    if (len<0) {
+        if (errno==ENOATTR) return 0;
+        return -1;
+    }
+    attrBuf[len]=0;
+    if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
+        return 0;
+    }
+    // fetch the file from cloud
+    outfile=fopen(filename, "wb");
+    S3Status s=cloud_get_object(CONTAINER_NAME, attrBuf, get_buffer);
+    fclose(outfile);
+    if (s!=S3StatusOK) return -1;
+    // restore time
+    len=getxattr(filename, XATTR_A_TIME, attrBuf, 4096);
+    if (len<0) return -1;
+    attrBuf[len]=0;
+    long ss1, ns1;
+    sscanf(attrBuf, "%ld %ld", &ss1, &ns1);
+
+    len=getxattr(filename, XATTR_M_TIME, attrBuf, 4096);
+    if (len<0) return -1;
+    attrBuf[len]=0;
+    long ss2, ns2;
+    sscanf(attrBuf, "%ld %ld", &ss2, &ns2);
+
+    struct timespec _times[2];
+    _times[0].tv_sec=ss1;
+    _times[0].tv_nsec=ns1;
+    _times[1].tv_sec=ss2;
+    _times[1].tv_nsec=ns2;
+    utimensat(0, filename, _times, 0);
+
+    len=getxattr(filename, XATTR_SIZE, attrBuf, 4096);
+    if (len<0) return -1;
+    attrBuf[len]=0;
+    long sz;
+    sscanf(attrBuf, "%ld", &sz);
+    truncate(filename, sz);
+
+    if (setxattr(filename, XATTR_ON_CLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0) return -1;
+
+    return 0;
+}
+void generateObjname(char *buf, const char *filename) {
+    sprintf(buf, "%s-%d", filename, time(NULL));
+    while (*buf) {
+        if (*buf=='/') *buf='-';
+        buf++;
+    }
+}
+static FILE *infile;
+int put_buffer(char *buffer, int bufferLength) {
+    return fread(buffer, 1, bufferLength, infile);
+}
+int disposeFile(const char *filename) {
+    struct stat tstat;
+    int ret=stat(filename, &tstat);
+    if (ret<0) return cloudfs_error("disposeFile: get stat error");
+    if (tstat.st_size<=fsConfig->threshold) return;
+    char attrBuf[4096];
+    sprintf(attrBuf, "%ld", (long)tstat.st_size);
+    if (setxattr(filename, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
+    sprintf(attrBuf, "%ld %ld", (long)tstat.st_atim.seconds, (long)tstat.st_atim.nanoseconds);
+    if (setxattr(filename, XATTR_A_TIME, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
+    sprintf(attrBuf, "%ld %ld", (long)tstat.st_mtim.seconds, (long)tstat.st_mtim.nanoseconds);
+    if (setxattr(filename, XATTR_M_TIME, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
+
+    generateObjname(attrBuf, filename);
+    infile=fopen(filename, "rb");
+    if (infile == NULL) {
+        cloudfs_error("disposeFile: file does not exist");
+        return -1;
+    }
+    S3Status s=cloud_put_object(CONTAINER_NAME, attrBuf, tstat.st_size, put_buffer);
+    fclose(infile);
+    if (s!=S3StatusOK) return -1;
+
+    if (setxattr(filename, XATTR_ON_CLOUD, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
+    return 0;
+}
+
+int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
+    fprintf(logFile, "[open]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+    openedFile* ofr=(openedFile*)malloc(sizeof(openedFile));
+    ofr->refCount=0;
+    if (!HPutIfAbsent(openfileTable, target, ofr)) {
+        free(ofr);
+        ofr=(openedFile*)HGet(openfileTable, target);
+    }
+    if (ofr->refCount==0) {
+        int res=ensureFileExist(target);
+        if (res<0) {
+            free(target);
+            cloudfs_error("open error: error in fetch");
+            return -1;
+        }
+    }
+    int ret=open(target, fi->flags);
+    free(target);
+    if (ret<0) return cloudfs_error("open error");
+    ofr->refCount++;
+    fi->fh=ret;
+    return ret;
+}
+
+int cloudfsRelease(const char *pathname, struct fuse_file_info *fi) {
+    fprintf(logFile, "[release]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+    close(fi->fh);
+    openedFile* ofr=(openedFile*)HGet(openfileTable, target);
+    ofr->refCount--;
+    if (ofr->refCount==0) {
+        if (disposeFile(target)<0) {
+            cloudfs_error("open error: error in dispose");
+            return -1;
+        }
+        free(HRemove(openfileTable, target));
+    }
+    free(target);
+
+    return 0;
+}
+
+int cloudfsFsync(UNUSED const char* path, int isdatasync, struct fuse_file_info* fi) {
+    fprintf(logFile, "[fsync]\t%s\n", pathname);
+    fflush(logFile);
+    int ret;
+    if (isdatasync) ret=(fdatasync(fi->fh));
+    else ret=(fsync(fi->fh));
+
+    if (ret>=0) return ret;
+    return cloudfs_error("fsync error");
 }
