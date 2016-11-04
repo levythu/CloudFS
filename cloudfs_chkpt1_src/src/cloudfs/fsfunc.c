@@ -23,6 +23,7 @@
 #define UNUSED __attribute__((unused))
 
 #define XATTR_ON_CLOUD "user.cloudfs.on.cloud"
+#define XATTR_ON_OLDCLOUD "user.cloudfs.on.old.cloud"
 #define XATTR_ON_CLOUD_NOV "//notInTheCloud"
 #define XATTR_M_TIME "user.cloudfs.mtime"
 #define XATTR_A_TIME "user.cloudfs.atime"
@@ -190,6 +191,7 @@ int cloudfsTruncate(const char *pathname, off_t length) {
 
     char attrBuf[4096];
     sprintf(attrBuf, "%ld", (long)length);
+    
     if (setxattr(target, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) {
         free(target);
         return cloudfs_error("disposeFile: put xattr error");
@@ -253,15 +255,41 @@ int cloudfsChmod(const char * pathname, mode_t mode) {
     return cloudfs_error("chmod error");
 }
 
+int getCloudName(const char *filename, char* attrBuf, int size) {
+    int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, size);
+    if (len==-1) {
+        if (errno==ENODATA) return 0;
+        cloudfs_error("getCloudName error");
+        return -1;
+    }
+    attrBuf[len]=0;
+    if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
+        return 0;
+    }
+    return 1;
+}
 
 int cloudfsUnlink(const char *pathname) {
     fprintf(logFile, "[unlink]\t%s\n", pathname);
     fflush(logFile);
     char* target=getSSDPosition(pathname);
+
+    char attrBuf[4096];
+    int oc=getCloudName(target, attrBuf, 4096);
+    if (oc<0) {
+        free(target);
+        return -1;
+    }
     int ret=unlink(target);
     free(target);
-    if (ret>=0) return ret;
-    return cloudfs_error("unlink error");
+    if (ret<0) return cloudfs_error("unlink error");
+    if (oc==1) {
+        if (cloud_delete_object(CONTAINER_NAME, attrBuf)!=S3StatusOK) {
+            cloudfs_error("removing error");
+        }
+    }
+
+    return ret;
 }
 
 static FILE *outfile;
@@ -286,6 +314,13 @@ int ensureFileExist(const char *filename) {
     fclose(outfile);
     if (s!=S3StatusOK) return -1;
     // restore time
+    len=getxattr(filename, XATTR_SIZE, attrBuf, 4096);
+    if (len<0) return -1;
+    attrBuf[len]=0;
+    long sz;
+    sscanf(attrBuf, "%ld", &sz);
+    if (truncate(filename, sz)<0) return -1;
+
     len=getxattr(filename, XATTR_A_TIME, attrBuf, 4096);
     if (len<0) return -1;
     attrBuf[len]=0;
@@ -305,13 +340,6 @@ int ensureFileExist(const char *filename) {
     _times[1].tv_nsec=ns2;
     utimensat(0, filename, _times, 0);
 
-    len=getxattr(filename, XATTR_SIZE, attrBuf, 4096);
-    if (len<0) return -1;
-    attrBuf[len]=0;
-    long sz;
-    sscanf(attrBuf, "%ld", &sz);
-    if (truncate(filename, sz)<0) return -1;
-
     if (setxattr(filename, XATTR_ON_CLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0) return -1;
 
     return 0;
@@ -323,6 +351,19 @@ void generateObjname(char *buf, const char *filename) {
         buf++;
     }
 }
+int getOldCloudName(const char *filename, char* attrBuf, int size) {
+    int len=getxattr(filename, XATTR_ON_OLDCLOUD, attrBuf, size);
+    if (len==-1) {
+        if (errno==ENODATA) return 0;
+        cloudfs_error("getCloudName error");
+        return -1;
+    }
+    attrBuf[len]=0;
+    if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
+        return 0;
+    }
+    return 1;
+}
 static FILE *infile;
 int put_buffer(char *buffer, int bufferLength) {
     return fread(buffer, 1, bufferLength, infile);
@@ -331,8 +372,21 @@ int disposeFile(const char *filename) {
     struct stat tstat;
     int ret=stat(filename, &tstat);
     if (ret<0) return cloudfs_error("disposeFile: get stat error");
-    if (tstat.st_size<=fsConfig->threshold) return 0;
     char attrBuf[4096];
+
+    if (tstat.st_size<=fsConfig->threshold) {
+        int isCN=getOldCloudName(filename, attrBuf, 4096);
+        if (isCN<0) return -1;
+        if (isCN==1) {
+            if (setxattr(filename, XATTR_ON_OLDCLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0)
+                return cloudfs_error("disposeFile: put xattr error");
+            if (cloud_delete_object(CONTAINER_NAME, attrBuf)!=S3StatusOK) {
+                cloudfs_error("removing error");
+            }
+        }
+        return 0;
+    }
+
     sprintf(attrBuf, "%ld", (long)tstat.st_size);
     if (setxattr(filename, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     sprintf(attrBuf, "%ld %ld", (long)tstat.st_atim.tv_sec, (long)tstat.st_atim.tv_nsec);
@@ -340,7 +394,9 @@ int disposeFile(const char *filename) {
     sprintf(attrBuf, "%ld %ld", (long)tstat.st_mtim.tv_sec, (long)tstat.st_mtim.tv_nsec);
     if (setxattr(filename, XATTR_M_TIME, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
 
-    generateObjname(attrBuf, filename);
+    int isCN=getOldCloudName(filename, attrBuf, 4096);
+    if (isCN<0) return -1;
+    if (isCN==0) generateObjname(attrBuf, filename);
     infile=fopen(filename, "rb");
     if (infile == NULL) {
         cloudfs_error("disposeFile: file does not exist");
@@ -351,6 +407,7 @@ int disposeFile(const char *filename) {
     if (s!=S3StatusOK) return -1;
 
     if (truncate(filename, 0)<0) return cloudfs_error("disposeFile: truncate error");
+    if (setxattr(filename, XATTR_ON_OLDCLOUD, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     if (setxattr(filename, XATTR_ON_CLOUD, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     return 0;
 }
