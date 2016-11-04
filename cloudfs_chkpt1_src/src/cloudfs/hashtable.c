@@ -13,7 +13,8 @@ Hashtable NewHashTable() {
 }
 
 void HRelease(Hashtable obj) {
-    for (int i=0; i<BIG_PRIME; i++) {
+    int i;
+    for (i=0; i<BIG_PRIME; i++) {
         hashNode* p=obj.table[i];
         while (p) {
             hashNode* q=p->next;
@@ -55,7 +56,7 @@ bool HPutIfAbsent(Hashtable obj, const char* key, void* v) {
 
 void* HGet(Hashtable obj, const char* key) {
     int bucket=HCalc(key)%BIG_PRIME;
-    hashNode* target=searchInList(obj.table[bucket];
+    hashNode* target=searchInList(obj.table[bucket], key);
     return target?target->v:NULL;
 }
 
@@ -64,7 +65,7 @@ void* HRemove(Hashtable obj, const char* key) {
     hashNode* p=obj.table[bucket];
     hashNode** pp=&obj.table[bucket];
     while (p) {
-        if (strcmp(listHead->k, key)==0) {
+        if (strcmp(p->k, key)==0) {
             *pp=p->next;
             void* t=p->v;
             free(p->k);

@@ -15,6 +15,7 @@
 #include <fcntl.h>
 
 #include "hashtable.h"
+#include "cloudapi.h"
 #include "libs3.h"
 #include "cloudfs.h"
 #include "fsfunc.h"
@@ -69,8 +70,8 @@ int cloudfsMkdir(const char *pathname, mode_t mode) {
 int onCloud(const char *filename) {
     char attrBuf[4096];
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
-    if (len<0) {
-        if (errno==ENOATTR) return 0;
+    if (len==-1) {
+        if (errno==ENODATA) return 0;
         return -1;
     }
     attrBuf[len]=0;
@@ -94,7 +95,7 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
         free(target);
         return cloudfs_error("getattr error");
     }
-    if (oc==0) return;
+    if (oc==0) return 0;
 
     char attrBuf[4096];
     int len;
@@ -128,10 +129,10 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
     free(target);
 
     tstat->st_size=sz;
-    tstat->st_atim.seconds=ss1;
-    tstat->st_atim.nanoseconds=ss1;
-    tstat->st_mtim.seconds=ss2;
-    tstat->st_mtim.nanoseconds=ss2;
+    tstat->st_atim.tv_sec=ss1;
+    tstat->st_atim.tv_nsec=ss1;
+    tstat->st_mtim.tv_sec=ss2;
+    tstat->st_mtim.tv_nsec=ss2;
     return 0;
 }
 
@@ -221,12 +222,12 @@ int cloudfsUTimens(const char *pathname, const struct timespec tv[2]) {
         return cloudfs_error("timens: utime error");
     }
     char attrBuf[4096];
-    sprintf(attrBuf, "%ld %ld", (long)tv[0].seconds, (long)tv[0].nanoseconds);
+    sprintf(attrBuf, "%ld %ld", (long)tv[0].tv_sec, (long)tv[0].tv_nsec);
     if (setxattr(target, XATTR_A_TIME, attrBuf, strlen(attrBuf), 0)<0) {
         free(target);
         return cloudfs_error("timens: put xattr error");
     }
-    sprintf(attrBuf, "%ld %ld", (long)tv[1].seconds, (long)tv[1].nanoseconds);
+    sprintf(attrBuf, "%ld %ld", (long)tv[1].tv_sec, (long)tv[1].tv_nsec);
     if (setxattr(target, XATTR_M_TIME, attrBuf, strlen(attrBuf), 0)<0) {
         free(target);
         return cloudfs_error("timens: put xattr error");
@@ -254,7 +255,7 @@ int ensureFileExist(const char *filename) {
     char attrBuf[4096];
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
     if (len<0) {
-        if (errno==ENOATTR) return 0;
+        if (errno==ENODATA) return 0;
         return -1;
     }
     attrBuf[len]=0;
@@ -291,14 +292,14 @@ int ensureFileExist(const char *filename) {
     attrBuf[len]=0;
     long sz;
     sscanf(attrBuf, "%ld", &sz);
-    truncate(filename, sz);
+    if (truncate(filename, sz)<0) return -1;
 
     if (setxattr(filename, XATTR_ON_CLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0) return -1;
 
     return 0;
 }
 void generateObjname(char *buf, const char *filename) {
-    sprintf(buf, "%s-%d", filename, time(NULL));
+    sprintf(buf, "%s-%d", filename, (int)time(NULL));
     while (*buf) {
         if (*buf=='/') *buf='-';
         buf++;
@@ -312,13 +313,13 @@ int disposeFile(const char *filename) {
     struct stat tstat;
     int ret=stat(filename, &tstat);
     if (ret<0) return cloudfs_error("disposeFile: get stat error");
-    if (tstat.st_size<=fsConfig->threshold) return;
+    if (tstat.st_size<=fsConfig->threshold) return 0;
     char attrBuf[4096];
     sprintf(attrBuf, "%ld", (long)tstat.st_size);
     if (setxattr(filename, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
-    sprintf(attrBuf, "%ld %ld", (long)tstat.st_atim.seconds, (long)tstat.st_atim.nanoseconds);
+    sprintf(attrBuf, "%ld %ld", (long)tstat.st_atim.tv_sec, (long)tstat.st_atim.tv_nsec);
     if (setxattr(filename, XATTR_A_TIME, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
-    sprintf(attrBuf, "%ld %ld", (long)tstat.st_mtim.seconds, (long)tstat.st_mtim.nanoseconds);
+    sprintf(attrBuf, "%ld %ld", (long)tstat.st_mtim.tv_sec, (long)tstat.st_mtim.tv_nsec);
     if (setxattr(filename, XATTR_M_TIME, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
 
     generateObjname(attrBuf, filename);
@@ -380,7 +381,7 @@ int cloudfsRelease(const char *pathname, struct fuse_file_info *fi) {
     return 0;
 }
 
-int cloudfsFsync(UNUSED const char* path, int isdatasync, struct fuse_file_info* fi) {
+int cloudfsFsync(UNUSED const char* pathname, int isdatasync, struct fuse_file_info* fi) {
     fprintf(logFile, "[fsync]\t%s\n", pathname);
     fflush(logFile);
     int ret;
@@ -389,4 +390,35 @@ int cloudfsFsync(UNUSED const char* path, int isdatasync, struct fuse_file_info*
 
     if (ret>=0) return ret;
     return cloudfs_error("fsync error");
+}
+
+int cloudfsRead(UNUSED const char *pathname, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    fprintf(logFile, "[read]\t%s\n", pathname);
+    fflush(logFile);
+    if (lseek(fi->fh, offset, SEEK_SET)==-1) return cloudfs_error("read error");
+    int transferred=0;
+    while (size>0) {
+        int bt=read(fi->fh, buf, size);
+        if (bt<0) return cloudfs_error("read error");
+        transferred+=bt;
+        if (bt==0) break;
+        size-=bt;
+        buf+=bt;
+    }
+    return transferred;
+}
+
+int cloudfsWrite(UNUSED const char* pathname, char *buf, size_t size, off_t offset, struct fuse_file_info* fi) {
+    fprintf(logFile, "[write]\t%s\n", pathname);
+    fflush(logFile);
+    if (lseek(fi->fh, offset, SEEK_SET)==-1) return cloudfs_error("write error");
+    int transferred=0;
+    while (size>0) {
+        int bt=write(fi->fh, buf, size);
+        if (bt<0) return cloudfs_error("write error");
+        transferred+=bt;
+        size-=bt;
+        buf+=bt;
+    }
+    return transferred;
 }

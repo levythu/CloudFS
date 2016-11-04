@@ -118,6 +118,7 @@ cloudfs: $(BUILD)/bin/cloudfs
 
 CLOUDFS_OBJS = $(BUILD)/obj/cloudfs.o \
 			   $(BUILD)/obj/cloudapi.o \
+			   $(BUILD)/obj/hashtable.o \
 			   $(BUILD)/obj/fsfunc.o \
 			   $(BUILD)/obj/main.o
 #You can append other objects

@@ -4,7 +4,7 @@
 
 typedef struct _hashNode {
     void* v;
-    const char* k;
+    char* k;
     struct _hashNode *next;
 } hashNode;
 

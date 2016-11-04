@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/xattr.h>
+#include <stdbool.h>
 #include <time.h>
 #include <unistd.h>
 #include "cloudapi.h"
@@ -82,7 +83,14 @@ struct fuse_operations cloudfs_operations = {
     .rmdir          = cloudfsRmDir,
     .truncate       = cloudfsTruncate,
     .statfs         = cloudfsStatfs,
+    .mknod          = cloudfsMknod,
+    .utimens        = cloudfsUTimens,
     .unlink         = cloudfsUnlink,
+    .open           = cloudfsOpen,
+    .release        = cloudfsRelease,
+    .fsync          = cloudfsFsync,
+    .read           = cloudfsRead,
+    .write          = cloudfsWrite,
     .destroy        = cloudfs_destroy
 };
 
