@@ -246,7 +246,7 @@ int cloudfsUTimens(const char *pathname, const struct timespec tv[2]) {
 }
 
 int cloudfsChmod(const char * pathname, mode_t mode) {
-    fprintf(logFile, "[chmod]\t%s\n", pathname);
+    fprintf(logFile, "[chmod]\t%s: %d\n", pathname, (int)mode);
     fflush(logFile);
     char* target=getSSDPosition(pathname);
     int ret=chmod(target, mode);
@@ -308,6 +308,12 @@ int ensureFileExist(const char *filename) {
     if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
         return 0;
     }
+
+    // modify the perm
+    struct stat tst;
+    if (stat(filename, &tst)<0) return cloudfs_error("ensureFileExist error: stat");
+    if (chmod(filename, 0100666)<0) return cloudfs_error("ensureFileExist error: chmod");
+
     // fetch the file from cloud
     outfile=fopen(filename, "wb");
     S3Status s=cloud_get_object(CONTAINER_NAME, attrBuf, get_buffer);
@@ -341,6 +347,8 @@ int ensureFileExist(const char *filename) {
     utimensat(0, filename, _times, 0);
 
     if (setxattr(filename, XATTR_ON_CLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0) return -1;
+
+    if (chmod(filename, tst.st_mode)<0) return cloudfs_error("ensureFileExist error: chmod");
 
     return 0;
 }
@@ -387,6 +395,11 @@ int disposeFile(const char *filename) {
         return 0;
     }
 
+    // modify the perm
+    struct stat tst;
+    if (stat(filename, &tst)<0) return cloudfs_error("ensureFileExist error: stat");
+    if (chmod(filename, 0100666)<0) return cloudfs_error("ensureFileExist error: chmod");
+
     sprintf(attrBuf, "%ld", (long)tstat.st_size);
     if (setxattr(filename, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     sprintf(attrBuf, "%ld %ld", (long)tstat.st_atim.tv_sec, (long)tstat.st_atim.tv_nsec);
@@ -409,6 +422,9 @@ int disposeFile(const char *filename) {
     if (truncate(filename, 0)<0) return cloudfs_error("disposeFile: truncate error");
     if (setxattr(filename, XATTR_ON_OLDCLOUD, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     if (setxattr(filename, XATTR_ON_CLOUD, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
+
+    if (chmod(filename, tst.st_mode)<0) return cloudfs_error("ensureFileExist error: chmod");
+
     return 0;
 }
 
