@@ -95,6 +95,8 @@ struct fuse_operations cloudfs_operations = {
     .read           = cloudfsRead,
     .write          = cloudfsWrite,
     .chmod          = cloudfsChmod,
+    .getxattr       = cloudfsGetXAttr,
+    .setxattr       = cloudfsSetXAttr,
     .destroy        = cloudfs_destroy
 };
 

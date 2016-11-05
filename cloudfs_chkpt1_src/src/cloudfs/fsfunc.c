@@ -191,7 +191,7 @@ int cloudfsTruncate(const char *pathname, off_t length) {
 
     char attrBuf[4096];
     sprintf(attrBuf, "%ld", (long)length);
-    
+
     if (setxattr(target, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) {
         free(target);
         return cloudfs_error("disposeFile: put xattr error");
@@ -497,4 +497,24 @@ int cloudfsWrite(UNUSED const char* pathname, const char *buf, size_t size, off_
         buf+=bt;
     }
     return transferred;
+}
+
+int cloudfsGetXAttr(const char *pathname, const char *name, char *value, size_t size) {
+    fprintf(logFile, "[getxaddr]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+    int ret=getxattr(target, name, value, size);
+    free(target);
+    if (ret>=0) return ret;
+    return cloudfs_error("getxaddr error");
+}
+
+int cloudfsSetXAttr(const char *pathname, const char *name, const char *value, size_t size, int flags) {
+    fprintf(logFile, "[setxaddr]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+    int ret=setxattr(target, name, value, size, flags);
+    free(target);
+    if (ret>=0) return ret;
+    return cloudfs_error("setxaddr error");
 }
