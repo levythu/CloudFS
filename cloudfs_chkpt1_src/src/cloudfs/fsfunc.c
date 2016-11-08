@@ -28,6 +28,7 @@
 #define XATTR_M_TIME "user.cloudfs.mtime"
 #define XATTR_A_TIME "user.cloudfs.atime"
 #define XATTR_SIZE "user.cloudfs.size"
+#define XATTR_BNUM "user.cloudfs.blocknum"
 
 FILE *logFile=NULL;
 struct cloudfs_state* fsConfig=NULL;
@@ -128,6 +129,15 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
     long sz;
     sscanf(attrBuf, "%ld", &sz);
 
+    len=getxattr(target, XATTR_BNUM, attrBuf, 4096);
+    if (len<0) {
+        free(target);
+        return cloudfs_error("getattr error");
+    }
+    attrBuf[len]=0;
+    long bn;
+    sscanf(attrBuf, "%ld", &bn);
+
     free(target);
 
     tstat->st_size=sz;
@@ -135,6 +145,11 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
     tstat->st_atim.tv_nsec=ss1;
     tstat->st_mtim.tv_sec=ss2;
     tstat->st_mtim.tv_nsec=ss2;
+    tstat->st_blocks=(blkcnt_t)bn;
+
+    fprintf(logFile, "[getattr]\tfile mde: %d\n", tstat->st_mode);
+    fflush(logFile);
+
     return 0;
 }
 
@@ -402,6 +417,8 @@ int disposeFile(const char *filename) {
 
     sprintf(attrBuf, "%ld", (long)tstat.st_size);
     if (setxattr(filename, XATTR_SIZE, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
+    sprintf(attrBuf, "%ld", (long)tstat.st_blocks);
+    if (setxattr(filename, XATTR_BNUM, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     sprintf(attrBuf, "%ld %ld", (long)tstat.st_atim.tv_sec, (long)tstat.st_atim.tv_nsec);
     if (setxattr(filename, XATTR_A_TIME, attrBuf, strlen(attrBuf), 0)<0) return cloudfs_error("disposeFile: put xattr error");
     sprintf(attrBuf, "%ld %ld", (long)tstat.st_mtim.tv_sec, (long)tstat.st_mtim.tv_nsec);
@@ -448,8 +465,12 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     }
     int ret=open(target, fi->flags);
     free(target);
-    if (ret<0) return cloudfs_error("open error");
     ofr->refCount++;
+    if (ret<0) {
+        fi->fh=0;
+        cloudfsRelease(pathname, fi);
+        return cloudfs_error("open error");
+    }
     fi->fh=ret;
     return 0;
 }
@@ -458,7 +479,7 @@ int cloudfsRelease(const char *pathname, struct fuse_file_info *fi) {
     fprintf(logFile, "[release]\t%s\n", pathname);
     fflush(logFile);
     char* target=getSSDPosition(pathname);
-    close(fi->fh);
+    if (fi->fh>0) close(fi->fh);
     openedFile* ofr=(openedFile*)HGet(openfileTable, target);
     ofr->refCount--;
     if (ofr->refCount==0) {
@@ -533,4 +554,13 @@ int cloudfsSetXAttr(const char *pathname, const char *name, const char *value, s
     free(target);
     if (ret>=0) return ret;
     return cloudfs_error("setxaddr error");
+}
+
+int cloudfsAccess(const char *pathname, int mask) {
+    fprintf(logFile, "[access]\t%s\n", pathname);
+    fflush(logFile);
+    char* target=getSSDPosition(pathname);
+    int ret=access(target, mask);
+    free(target);
+    return ret;
 }

@@ -18,6 +18,7 @@ extern int cloudfsWrite(const char* path, const char *buf, size_t size, off_t of
 extern int cloudfsChmod(const char * pathname, mode_t mode);
 extern int cloudfsGetXAttr(const char *path, const char *name, char *value, size_t size);
 extern int cloudfsSetXAttr(const char *path, const char *name, const char *value, size_t size, int flags);
+extern int cloudfsAccess(const char *pathname, int mask);
 
 extern FILE *logFile;
 extern struct cloudfs_state* fsConfig;

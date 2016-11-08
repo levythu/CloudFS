@@ -97,7 +97,8 @@ struct fuse_operations cloudfs_operations = {
     .chmod          = cloudfsChmod,
     .getxattr       = cloudfsGetXAttr,
     .setxattr       = cloudfsSetXAttr,
-    .destroy        = cloudfs_destroy
+    .destroy        = cloudfs_destroy,
+    .access         = cloudfsAccess
 };
 
 int cloudfs_start(struct cloudfs_state *state,

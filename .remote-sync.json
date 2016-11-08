@@ -2,7 +2,7 @@
   "uploadOnSave": false,
   "useAtomicWrites": false,
   "deleteLocal": false,
-  "hostname": "192.168.241.130",
+  "hostname": "192.168.249.128",
   "port": "22",
   "target": "./",
   "ignore": [
