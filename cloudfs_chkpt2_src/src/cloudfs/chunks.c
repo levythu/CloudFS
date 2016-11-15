@@ -62,6 +62,10 @@ void initChunkTable() {
     HPutIfAbsent(chunkTable, "as12309sdflj", &huahua);
     (*(int*)HGet(chunkTable, "as12309sdflj"))++;
     */
+
+    decChunkReference("aichi");
+    decChunkReference("baomihua");
+
     pushChunkTable();
 }
 
@@ -106,4 +110,20 @@ bool pushChunkTable() {
     S3Status s=cloud_put_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, writeBufferLen, dup_write_buffer);
     free(buf);
     return s!=S3StatusOK;
+}
+
+void incChunkReference(const char* chunkname) {
+    int* tmp=(int*)malloc(sizeof(int));
+    *tmp=0;
+    if (!HPutIfAbsent(chunkTable, chunkname, tmp)) free(tmp);
+    (*(int*)HGet(chunkTable, chunkname))++;
+}
+
+// [return] Whether a deletion has happened. Exception on non-exist chunck
+bool decChunkReference(const char* chunkname) {
+    int* t=(int*)HGet(chunkTable, chunkname);
+    (*t)--;
+    if (*t>0) return false;
+    free(HRemove(chunkTable, chunkname));
+    return true;
 }
