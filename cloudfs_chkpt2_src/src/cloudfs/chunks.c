@@ -57,14 +57,6 @@ void pullChunkTable() {
 void initChunkTable() {
     chunkTable=NewHashTable();
     pullChunkTable();
-    /*
-    int huahua=1;
-    HPutIfAbsent(chunkTable, "as12309sdflj", &huahua);
-    (*(int*)HGet(chunkTable, "as12309sdflj"))++;
-    */
-
-    decChunkReference("aichi");
-    decChunkReference("baomihua");
 
     pushChunkTable();
 }
