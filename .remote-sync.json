@@ -2,7 +2,7 @@
   "uploadOnSave": false,
   "useAtomicWrites": false,
   "deleteLocal": false,
-  "hostname": "192.168.249.128",
+  "hostname": "ec2-54-165-55-191.compute-1.amazonaws.com",
   "port": "22",
   "target": "./",
   "ignore": [
@@ -10,7 +10,7 @@
     ".git/**"
   ],
   "username": "student",
-  "password": "password",
+  "keyfile": "C:\\Users\\levyt\\Documents\\Levy\\Docums\\keys\\746-student.pem",
   "watch": [],
   "transport": "scp"
 }
