@@ -4,8 +4,6 @@
 
 #include "hashtable.h"
 
-#define BIG_PRIME 65447
-
 Hashtable NewHashTable() {
     Hashtable ret;
     ret.table=(hashNode**)calloc(BIG_PRIME, sizeof(hashNode*));

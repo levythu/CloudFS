@@ -20,6 +20,7 @@
 #include "dedup.h"
 #include "hashtable.h"
 #include "fsfunc.h"
+#include "chunks.h"
 
 #define UNUSED __attribute__((unused))
 
@@ -54,6 +55,9 @@ void *cloudfs_init(struct fuse_conn_info *conn UNUSED)
   cloud_create_bucket(CONTAINER_NAME);
   fprintf(logFile, "Created container\n");
   fflush(logFile);
+
+  initChunkTable();
+  
   return NULL;
 }
 

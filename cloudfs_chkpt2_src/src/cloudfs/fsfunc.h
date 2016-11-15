@@ -25,5 +25,6 @@ extern struct cloudfs_state* fsConfig;
 extern Hashtable openfileTable;
 
 #define CONTAINER_NAME "test1"
+#define CHUNK_DIRECTORY_NAME ".chunkdir"
 
 #endif

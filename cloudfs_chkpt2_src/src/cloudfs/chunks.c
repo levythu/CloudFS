@@ -1,0 +1,109 @@
+#include <string.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/xattr.h>
+#include <sys/stat.h>
+#include <fuse.h>
+#include <dirent.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/statvfs.h>
+#include <stdbool.h>
+#include <sys/time.h>
+#include <fcntl.h>
+
+#include "hashtable.h"
+#include "chunks.h"
+#include "cloudapi.h"
+#include "libs3.h"
+#include "fsfunc.h"
+
+static Hashtable chunkTable;
+
+#define CHUNKDIR_MAX_SIZE 10*1024*1024      // 10M
+
+static char* tReadBuffer;
+static int dup_read_buffer(const char *buffer, int bufferLength) {
+    memcpy(tReadBuffer, buffer, bufferLength);
+    tReadBuffer+=bufferLength;
+    return bufferLength;
+}
+void pullChunkTable() {
+    char* buf=tReadBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
+    S3Status s=cloud_get_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, dup_read_buffer);
+    if (s!=S3StatusOK) {
+        fprintf(logFile, "[pullChunkTable]\tError in fetching chunktable. Create new instead.");
+        fflush(logFile);
+    } else {
+        int N, i;
+        int offset=0, readlen;
+        char chunkName[200];
+        sscanf(buf, "%d%n", &N, &offset);
+        for (i=0; i<N; i++) {
+            int* count=(int*)malloc(sizeof(int));
+            sscanf(buf+offset, "%d %s%n", count, chunkName, &readlen);
+            offset+=readlen;
+            HPutIfAbsent(chunkTable, chunkName, count);
+        }
+    }
+    free(buf);
+}
+
+void initChunkTable() {
+    chunkTable=NewHashTable();
+    pullChunkTable();
+    /*
+    int huahua=1;
+    HPutIfAbsent(chunkTable, "as12309sdflj", &huahua);
+    (*(int*)HGet(chunkTable, "as12309sdflj"))++;
+    */
+    pushChunkTable();
+}
+
+int getChunkCount() {
+    int i;
+    int ans=0;
+    for (i=0; i<BIG_PRIME; i++) {
+        hashNode* p=chunkTable.table[i];
+        while (p) {
+            ans++;
+            p=p->next;
+        }
+    }
+    return ans;
+}
+
+
+static char* tWriteBuffer;
+static int writeBufferLen;
+static int dup_write_buffer(char *buffer, int bufferLength) {
+    if (bufferLength>writeBufferLen) bufferLength=writeBufferLen;
+    memcpy(buffer, tWriteBuffer, bufferLength);
+    writeBufferLen-=bufferLength;
+    tWriteBuffer+=bufferLength;
+    return bufferLength;
+}
+bool pushChunkTable() {
+    char* buf=tWriteBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
+    int offset, i;
+    sprintf(tWriteBuffer, "%d\n%n", getChunkCount(), &offset);
+    for (i=0; i<BIG_PRIME; i++) {
+        hashNode* p=chunkTable.table[i];
+        while (p) {
+            int len;
+            sprintf(tWriteBuffer+offset, "%d %s\n%n", *((int*)p->v), p->k, &len);
+            offset+=len;
+            p=p->next;
+        }
+    }
+    writeBufferLen=offset;
+
+    S3Status s=cloud_put_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, writeBufferLen, dup_write_buffer);
+    free(buf);
+    return s!=S3StatusOK;
+}

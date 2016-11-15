@@ -20,4 +20,6 @@ extern void HRelease(Hashtable obj);
 
 extern Hashtable NewHashTable();
 
+#define BIG_PRIME 65447
+
 #endif
