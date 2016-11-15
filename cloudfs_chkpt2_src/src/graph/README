@@ -1,0 +1,6 @@
+Instructions on how to generate cloud cost graph:
+1. Install python package "matplotlib" on your host machine as you don't have sudo permission on VM.
+2. Replace the s3-server/s3server.pyc with the new one.
+3. Run "make test_3_*" and you will see s3server.log in the make directory.
+4. Scp s3server.log to your host machine.
+5. Run "python plot.py" in the same directory as s3server.log and you can get the cost graph "graph.png".
