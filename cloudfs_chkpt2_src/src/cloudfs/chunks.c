@@ -16,6 +16,8 @@
 #include <stdbool.h>
 #include <sys/time.h>
 #include <fcntl.h>
+#include <openssl/md5.h>
+#include "dedup.h"
 
 #include "hashtable.h"
 #include "chunks.h"
@@ -55,7 +57,7 @@ void pullChunkTable() {
 }
 
 void* getChunkRaw(const char *chunkName, long *len) {
-    char* x=tReadBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
+    char* buf=tReadBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
     S3Status s=cloud_get_object(CONTAINER_NAME, chunkName, dup_read_buffer);
     if (s!=S3StatusOK) {
         fprintf(logFile, "[getChunkRaw]\tError.");
