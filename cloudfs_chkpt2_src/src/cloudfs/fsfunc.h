@@ -23,6 +23,7 @@ extern int cloudfsAccess(const char *pathname, int mask);
 extern FILE *logFile;
 extern struct cloudfs_state* fsConfig;
 extern Hashtable openfileTable;
+extern rabinpoly_t *rp;
 
 #define CONTAINER_NAME "test1"
 #define CHUNK_DIRECTORY_NAME ".chunkdir"

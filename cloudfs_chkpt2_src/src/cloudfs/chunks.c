@@ -54,6 +54,25 @@ void pullChunkTable() {
     free(buf);
 }
 
+void* getChunkRaw(const char *chunkName, long *len) {
+    char* x=tReadBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
+    S3Status s=cloud_get_object(CONTAINER_NAME, chunkName, dup_read_buffer);
+    if (s!=S3StatusOK) {
+        fprintf(logFile, "[getChunkRaw]\tError.");
+        fflush(logFile);
+        free(buf);
+        return NULL;
+    }
+    *len=tReadBuffer-buf;
+    return buf;
+}
+long getChunkLen(const char *chunkName) {
+    long ret=0;
+    void* p=getChunkRaw(chunkName, &ret);
+    if (p) free(p);
+    return ret;
+}
+
 void initChunkTable() {
     chunkTable=NewHashTable();
     pullChunkTable();
@@ -76,7 +95,7 @@ int getChunkCount() {
 
 
 static char* tWriteBuffer;
-static int writeBufferLen;
+static long writeBufferLen;
 static int dup_write_buffer(char *buffer, int bufferLength) {
     if (bufferLength>writeBufferLen) bufferLength=writeBufferLen;
     memcpy(buffer, tWriteBuffer, bufferLength);
@@ -101,13 +120,25 @@ bool pushChunkTable() {
 
     S3Status s=cloud_put_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, writeBufferLen, dup_write_buffer);
     free(buf);
-    return s!=S3StatusOK;
+    return s==S3StatusOK;
 }
 
-void incChunkReference(const char* chunkname) {
+bool putChunkRaw(const char *chunkname, long len, char *content) {
+    tWriteBuffer=content;
+    writeBufferLen=len;
+
+    S3Status s=cloud_put_object(CONTAINER_NAME, chunkname, writeBufferLen, dup_write_buffer);
+    return s==S3StatusOK;
+}
+
+void incChunkReference(const char* chunkname, long len, char* content) {
     int* tmp=(int*)malloc(sizeof(int));
     *tmp=0;
     if (!HPutIfAbsent(chunkTable, chunkname, tmp)) free(tmp);
+    else {
+        // upload the chunk content
+        putChunkRaw(chunkname, len, content);
+    }
     (*(int*)HGet(chunkTable, chunkname))++;
 }
 
@@ -116,6 +147,7 @@ bool decChunkReference(const char* chunkname) {
     int* t=(int*)HGet(chunkTable, chunkname);
     (*t)--;
     if (*t>0) return false;
+    // TODO: remove the chunk from cloud
     free(HRemove(chunkTable, chunkname));
     return true;
 }

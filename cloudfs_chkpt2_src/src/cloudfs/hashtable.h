@@ -20,6 +20,8 @@ extern void HRelease(Hashtable obj);
 
 extern Hashtable NewHashTable();
 
+extern char* dupString(const char* original);
+
 #define BIG_PRIME 65447
 
 #endif
