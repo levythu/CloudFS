@@ -58,6 +58,10 @@ void *cloudfs_init(struct fuse_conn_info *conn UNUSED)
   fprintf(logFile, "Created container\n");
   fflush(logFile);
 
+
+  rp=rabin_init(fsConfig->rabin_window_size, fsConfig->avg_seg_size, fsConfig->min_seg_size, fsConfig->max_seg_size);
+  initChunkTable();
+
   return NULL;
 }
 
@@ -120,9 +124,6 @@ int cloudfs_start(struct cloudfs_state *state,
   state_  = *state;
   fsConfig=&state_;
   openfileTable=NewHashTable();
-
-  rp=rabin_init(state->rabin_window_size, state->avg_seg_size, state->min_seg_size, state->max_seg_size);
-  initChunkTable();
 
   logFile=fopen("/tmp/cloudfs.log", "w+");
   //logFile=fopen("/dev/null", "w+");

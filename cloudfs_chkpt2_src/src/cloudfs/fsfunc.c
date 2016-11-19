@@ -60,6 +60,17 @@ long getLen(openedFile* ofr) {
     return ofr->chunkPosition[ofr->chunkCount-1]+getChunkLen(ofr->chunkName[ofr->chunkCount-1]);
 }
 
+void printOF(openedFile* ofr) {
+    fprintf(logFile, "[printOF]================\n[");
+    fflush(logFile);
+    int i;
+    for (i=0; i<ofr->chunkCount; i++)
+        fprintf(logFile, "(%s, %ld), ", ofr->chunkName[i], ofr->chunkPosition[i]);
+
+    fprintf(logFile, "NULL]\n");
+    fflush(logFile);
+}
+
 openedFile* makeDupOF(openedFile* ofr) {
     openedFile* ret=(openedFile*)malloc(sizeof(openedFile));
     ret->refCount=ofr->refCount;
@@ -82,6 +93,8 @@ openedFile* makeDupOF(openedFile* ofr) {
 }
 
 void disposeOF(openedFile* ofr) {
+    fprintf(logFile, "[disposeOF]\t\n");
+    fflush(logFile);
     if (ofr->mode==1 && ofr->chunkName) {
         int i;
         for (i=0; i<ofr->chunkCount; i++) {
@@ -111,20 +124,26 @@ void qksortOnChunklist(openedFile* ofr, int begg, int endd) {
             i++; j--;
         }
     }
-    if (begg<i) qksortOnChunklist(ofr, begg, i);
-    if (j<endd) qksortOnChunklist(ofr, j, endd);
+    if (begg<j) qksortOnChunklist(ofr, begg, j);
+    if (i<endd) qksortOnChunklist(ofr, i, endd);
 }
 void rearrangeChunkList(openedFile* ofr) {
+    fprintf(logFile, "[rearrangeChunkList]\t\n");
+    fflush(logFile);
     qksortOnChunklist(ofr, 0, ofr->chunkCount-1);
     while (ofr->chunkCount>0 && ofr->chunkPosition[ofr->chunkCount-1]==0x7fffffff) {
         decChunkReference(ofr->chunkName[ofr->chunkCount-1]);
         free(ofr->chunkName[ofr->chunkCount-1]);
         ofr->chunkCount--;
     }
+    fprintf(logFile, "[rearrangeChunkList]\tDONE\n");
+    fflush(logFile);
 }
 
 // we don't consider sparse file
 int findRightChunk(openedFile* ofr, long startPos) {
+    fprintf(logFile, "[findRightChunk]\t%ld\n", startPos);
+    fflush(logFile);
     int i=0;
     for (i=0; i<ofr->chunkCount; i++)
         if (startPos<ofr->chunkPosition[i]) break;
@@ -149,7 +168,7 @@ void putChunk(openedFile* ofr, int chunkIndex, const char* chunkName, long start
         if (ofr->chunkCount==ofr->capacity) {
             ofr->capacity=2*ofr->chunkCount+1;
             ofr->chunkName=realloc(ofr->chunkName, ofr->capacity*sizeof(char*));
-            ofr->chunkPosition=realloc(ofr->chunkName, ofr->capacity*sizeof(long));
+            ofr->chunkPosition=realloc(ofr->chunkPosition, ofr->capacity*sizeof(long));
         }
         ofr->chunkName[ofr->chunkCount]=dupString(chunkName);
         ofr->chunkPosition[ofr->chunkCount]=startPos;
@@ -200,7 +219,7 @@ int cloudfsMkdir(const char *pathname, mode_t mode) {
     return cloudfs_error("mkdir error");
 }
 
-// 1 for on, 0 for off, -1 for error
+// 1 for on, 0 for off, -1 for error, 2 for chunked
 int onCloud(const char *filename) {
     char attrBuf[4096];
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
@@ -212,6 +231,9 @@ int onCloud(const char *filename) {
     attrBuf[len]=0;
     if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
         return 0;
+    }
+    if (strcmp(attrBuf, XATTR_ON_CLOUD_CHUNK)==0) {
+        return 2;
     }
     return 1;
 }
@@ -234,23 +256,26 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
 
     char attrBuf[4096];
     int len;
-    len=getxattr(target, XATTR_A_TIME, attrBuf, 4096);
-    if (len<0) {
-        free(target);
-        return cloudfs_error("getattr error");
-    }
-    attrBuf[len]=0;
-    long ss1, ns1;
-    sscanf(attrBuf, "%ld %ld", &ss1, &ns1);
 
-    len=getxattr(target, XATTR_M_TIME, attrBuf, 4096);
-    if (len<0) {
-        free(target);
-        return cloudfs_error("getattr error");
-    }
-    attrBuf[len]=0;
+    long ss1, ns1;
     long ss2, ns2;
-    sscanf(attrBuf, "%ld %ld", &ss2, &ns2);
+    if (oc==1) {
+        len=getxattr(target, XATTR_A_TIME, attrBuf, 4096);
+        if (len<0) {
+            free(target);
+            return cloudfs_error("getattr error");
+        }
+        attrBuf[len]=0;
+        sscanf(attrBuf, "%ld %ld", &ss1, &ns1);
+
+        len=getxattr(target, XATTR_M_TIME, attrBuf, 4096);
+        if (len<0) {
+            free(target);
+            return cloudfs_error("getattr error");
+        }
+        attrBuf[len]=0;
+        sscanf(attrBuf, "%ld %ld", &ss2, &ns2);
+    }
 
     len=getxattr(target, XATTR_SIZE, attrBuf, 4096);
     if (len<0) {
@@ -273,10 +298,13 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
     free(target);
 
     tstat->st_size=sz;
-    tstat->st_atim.tv_sec=ss1;
-    tstat->st_atim.tv_nsec=ss1;
-    tstat->st_mtim.tv_sec=ss2;
-    tstat->st_mtim.tv_nsec=ss2;
+    if (oc==1) {
+        tstat->st_atim.tv_sec=ss1;
+        tstat->st_atim.tv_nsec=ss1;
+        tstat->st_mtim.tv_sec=ss2;
+        tstat->st_mtim.tv_nsec=ss2;
+    }
+
     tstat->st_blocks=(blkcnt_t)bn;
 
     fprintf(logFile, "[getattr]\tfile mde: %d\n", tstat->st_mode);
@@ -413,6 +441,9 @@ int getCloudName(const char *filename, char* attrBuf, int size) {
     attrBuf[len]=0;
     if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
         return 0;
+    }
+    if (strcmp(attrBuf, XATTR_ON_CLOUD_CHUNK)==0) {
+        return 2;
     }
     return 1;
 }
@@ -758,6 +789,8 @@ int cloudfsRead(const char *pathname, char *buf, size_t size, off_t offset, stru
 }
 
 void convertFileToChunks(const char* filename, openedFile* ofr) {
+    fprintf(logFile, "[convertFileToChunks]\t%s\n", filename);
+    fflush(logFile);
     ofr->mode=1;
     ofr->capacity=ofr->chunkCount=0;
     ofr->chunkName=NULL;
@@ -815,6 +848,8 @@ void convertFileToChunks(const char* filename, openedFile* ofr) {
         putChunk(ofr, 0x7fffffff, chunkname, segment_start, nvs-vs, vs);
     }
     free(vs);
+    pushChunkTable();
+    printOF(ofr);
     close(fd);
 }
 
@@ -836,13 +871,16 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
             size-=bt;
             buf+=bt;
         }
-        if ((long)(size+offset)>fsConfig->threshold) {
+        if (!fsConfig->no_dedup && (long)(size+offset)>fsConfig->threshold) {
             close(fi->fh);
             convertFileToChunks(target, ofr);
         }
         free(target);
         return transferred;
     }
+
+    fprintf(logFile, "[write]\tchunk mode find\n");
+    fflush(logFile);
 
     size_t oriSize=size;
     int startChunkNumber=findRightChunk(ofr, offset);
@@ -851,18 +889,27 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
 
     char* tSpace=(char*)malloc(sizeof(char)*(size+2*fsConfig->max_seg_size));
 
+    fprintf(logFile, "[write]\talgining head\n");
+    fflush(logFile);
+
+    if (startChunkNumber<0 && ofr->chunkCount>0) startChunkNumber=ofr->chunkCount-1;
     if (startChunkNumber>=0) {
         long chunkLen;
+        fprintf(logFile, "[write]\tgetting chunk %s\n", ofr->chunkName[startChunkNumber]);
+        fflush(logFile);
         char* tmp=getChunkRaw(ofr->chunkName[startChunkNumber], &chunkLen);
         memcpy(tSpace, tmp, chunkLen);
         free(tmp);
-        memcpy(tSpace+offset-ofr->chunkPosition[startChunkNumber], buf, size);
+        memcpy(tSpace+(offset-ofr->chunkPosition[startChunkNumber]), buf, size);
         size+=offset-ofr->chunkPosition[startChunkNumber];
         startPosition=ofr->chunkPosition[startChunkNumber];
     } else {
         memcpy(tSpace, buf, size);
         startPosition=getLen(ofr);
     }
+
+    // now, tSpace hold the content to be written and startPosition is the absolute
+    // start position; size is the size of tSpace;
 
     rabin_reset(rp);
     MD5_CTX ctx;
@@ -877,11 +924,15 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
         // size is the total left size of tSpaceHead
         int new_segment;
         int segLen;
+        fprintf(logFile, "[write]\tpulling old chunks\n");
+        fflush(logFile);
         while ((segLen=rabin_segment_next(rp, tSpaceHead, size, &new_segment))>0) {
             MD5_Update(&ctx, tSpaceHead, segLen);
             if (new_segment) {
                 // seg: [segHead, tSpaceHead+segLen]
                 // firstly, disable the old seg hold the segment
+                fprintf(logFile, "[write]\tnew chunk at [%d, %ld]\n", startPosition, startPosition+(tSpaceHead+segLen-segHead));
+                fflush(logFile);
                 int oldSegNumber=findRightChunk(ofr, startPosition);
                 if (oldSegNumber>=0) newofr->chunkPosition[oldSegNumber]=0x7fffffff;
                 // then, save the chunk
@@ -902,6 +953,8 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
             size-=segLen;
             if (size==0) break;
         }
+        fprintf(logFile, "[write]\tapplying cascading modification\n");
+        fflush(logFile);
         if (tSpaceHead!=segHead) {
             // still sth left, try to initiate new chunk in
             int replementChunkNumber=findRightChunk(ofr, startPosition+(tSpaceHead-segHead));
@@ -926,15 +979,21 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
             tSpaceHead=segHead+p;
             free(tSpace);
             tSpace=newtSpace;
-            size=chunkLen-p;
+            size=chunkLen-(startPosition+p-ofr->chunkPosition[replementChunkNumber]);
 
             memcpy(tSpaceHead, tmp+(startPosition+p-ofr->chunkPosition[replementChunkNumber]),
                 chunkLen-(startPosition+p-ofr->chunkPosition[replementChunkNumber]));
             free(tmp);
+        } else {
+            break;
         }
     }
+    fprintf(logFile, "[write]\tpush modification\n");
+    fflush(logFile);
 
     free(tSpace);
+
+    printOF(newofr);
     rearrangeChunkList(newofr);
     disposeOF(ofr);
     HRemove(openfileTable, target);

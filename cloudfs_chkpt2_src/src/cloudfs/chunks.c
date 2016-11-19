@@ -19,6 +19,7 @@
 #include <openssl/md5.h>
 #include "dedup.h"
 
+#include "cloudfs.h"
 #include "hashtable.h"
 #include "chunks.h"
 #include "cloudapi.h"
@@ -57,7 +58,9 @@ void pullChunkTable() {
 }
 
 void* getChunkRaw(const char *chunkName, long *len) {
-    char* buf=tReadBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
+    fprintf(logFile, "[getChunkRaw]\t%s\n", chunkName);
+    fflush(logFile);
+    char* buf=tReadBuffer=(char*)malloc(sizeof(char)*(fsConfig->max_seg_size+10));
     S3Status s=cloud_get_object(CONTAINER_NAME, chunkName, dup_read_buffer);
     if (s!=S3StatusOK) {
         fprintf(logFile, "[getChunkRaw]\tError.");
@@ -66,12 +69,18 @@ void* getChunkRaw(const char *chunkName, long *len) {
         return NULL;
     }
     *len=tReadBuffer-buf;
+    fprintf(logFile, "[getChunkRaw].SUCC\n");
+    fflush(logFile);
     return buf;
 }
 long getChunkLen(const char *chunkName) {
+    fprintf(logFile, "[getChunkLen].\n");
+    fflush(logFile);
     long ret=0;
     void* p=getChunkRaw(chunkName, &ret);
     if (p) free(p);
+    fprintf(logFile, "[getChunkLen].SUCC\n");
+    fflush(logFile);
     return ret;
 }
 
@@ -134,6 +143,8 @@ bool putChunkRaw(const char *chunkname, long len, char *content) {
 }
 
 void incChunkReference(const char* chunkname, long len, char* content) {
+    fprintf(logFile, "[incChunkReference]\t\n");
+    fflush(logFile);
     int* tmp=(int*)malloc(sizeof(int));
     *tmp=0;
     if (!HPutIfAbsent(chunkTable, chunkname, tmp)) free(tmp);
@@ -146,6 +157,8 @@ void incChunkReference(const char* chunkname, long len, char* content) {
 
 // [return] Whether a deletion has happened. Exception on non-exist chunck
 bool decChunkReference(const char* chunkname) {
+    fprintf(logFile, "[decChunkReference]\t\n");
+    fflush(logFile);
     int* t=(int*)HGet(chunkTable, chunkname);
     (*t)--;
     if (*t>0) return false;

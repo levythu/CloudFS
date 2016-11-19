@@ -2,7 +2,7 @@
   "uploadOnSave": false,
   "useAtomicWrites": false,
   "deleteLocal": false,
-  "hostname": "ec2-54-159-69-128.compute-1.amazonaws.com",
+  "hostname": "ec2-52-90-101-199.compute-1.amazonaws.com",
   "port": "22",
   "target": "./",
   "ignore": [
