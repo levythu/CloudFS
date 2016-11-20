@@ -51,17 +51,21 @@ typedef struct _openedFile {
     char **chunkName;
     long* chunkPosition;
     int chunkCount;
+    long totalLen;
 
     int capacity;
 } openedFile;
 
 long getLen(openedFile* ofr) {
-    if (ofr->chunkCount==0) return 0;
-    return ofr->chunkPosition[ofr->chunkCount-1]+getChunkLen(ofr->chunkName[ofr->chunkCount-1]);
+    if (ofr->totalLen>=0) return ofr->totalLen;
+
+    if (ofr->chunkCount==0) ofr->totalLen=0;
+    ofr->totalLen=ofr->chunkPosition[ofr->chunkCount-1]+getChunkLen(ofr->chunkName[ofr->chunkCount-1]);
+    return ofr->totalLen;
 }
 
 void printOF(openedFile* ofr) {
-    fprintf(logFile, "[printOF]================\n[");
+    fprintf(logFile, "[printOF]================Size: %ld\n[", getLen(ofr));
     fflush(logFile);
     int i;
     for (i=0; i<ofr->chunkCount; i++)
@@ -77,6 +81,7 @@ openedFile* makeDupOF(openedFile* ofr) {
     ret->mode=ofr->refCount;
     ret->capacity=ofr->capacity;
     ret->chunkCount=ofr->chunkCount;
+    ret->totalLen=ofr->totalLen;
     ret->chunkName=NULL;
     ret->chunkPosition=NULL;
 
@@ -130,6 +135,7 @@ void qksortOnChunklist(openedFile* ofr, int begg, int endd) {
 void rearrangeChunkList(openedFile* ofr) {
     fprintf(logFile, "[rearrangeChunkList]\t\n");
     fflush(logFile);
+    ofr->totalLen=-1;
     qksortOnChunklist(ofr, 0, ofr->chunkCount-1);
     while (ofr->chunkCount>0 && ofr->chunkPosition[ofr->chunkCount-1]==0x7fffffff) {
         decChunkReference(ofr->chunkName[ofr->chunkCount-1]);
@@ -156,6 +162,7 @@ int findRightChunk(openedFile* ofr, long startPos) {
 // if chunkIndex>=ofr->chunkCount, append it.
 // chunkName will be duplicated.
 void putChunk(openedFile* ofr, int chunkIndex, const char* chunkName, long startPos, long len, char* chunkContent) {
+    ofr->totalLen=-1;
     if (chunkIndex<ofr->chunkCount) {
         char* originalName=ofr->chunkName[chunkIndex];
         ofr->chunkName[chunkIndex]=dupString(chunkName);
@@ -175,15 +182,6 @@ void putChunk(openedFile* ofr, int chunkIndex, const char* chunkName, long start
         ofr->chunkCount++;
         incChunkReference(chunkName, len, chunkContent);
     }
-}
-
-void removeChunk(openedFile* ofr, int startingChunkIndex) {
-    int i;
-    for (i=startingChunkIndex; i<ofr->chunkCount; i++) {
-        decChunkReference(ofr->chunkName[i]);
-        free(ofr->chunkName[i]);
-    }
-    ofr->chunkCount=i;
 }
 
 // ============================================================================
@@ -662,6 +660,7 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     char* target=getSSDPosition(pathname);
     openedFile* ofr=(openedFile*)malloc(sizeof(openedFile));
     ofr->refCount=0;
+    ofr->totalLen=-1;
     if (!HPutIfAbsent(openfileTable, target, ofr)) {
         free(ofr);
         ofr=(openedFile*)HGet(openfileTable, target);
@@ -929,12 +928,18 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
         while ((segLen=rabin_segment_next(rp, tSpaceHead, size, &new_segment))>0) {
             MD5_Update(&ctx, tSpaceHead, segLen);
             if (new_segment) {
-                // seg: [segHead, tSpaceHead+segLen]
+                // seg: [segHead, tSpaceHead+segLen)
                 // firstly, disable the old seg hold the segment
-                fprintf(logFile, "[write]\tnew chunk at [%d, %ld]\n", startPosition, startPosition+(tSpaceHead+segLen-segHead));
+                fprintf(logFile, "[write]\tnew chunk at [%d, %ld)\n", startPosition, startPosition+(tSpaceHead+segLen-segHead));
                 fflush(logFile);
                 int oldSegNumber=findRightChunk(ofr, startPosition);
-                if (oldSegNumber>=0) newofr->chunkPosition[oldSegNumber]=0x7fffffff;
+                int oldSegNumberEnd=findRightChunk(ofr, startPosition+(tSpaceHead+segLen-segHead)-1);
+                if (oldSegNumber>=0) {
+                    if (oldSegNumberEnd<0) oldSegNumberEnd=ofr->chunkCount-1;
+                    int j;
+                    for (j=oldSegNumber; j<=oldSegNumberEnd; j++)
+                        newofr->chunkPosition[j]=0x7fffffff;
+                }
                 // then, save the chunk
                 unsigned char md5[MD5_DIGEST_LENGTH];
                 char chunkname[2*MD5_DIGEST_LENGTH+1];
@@ -960,6 +965,18 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
             int replementChunkNumber=findRightChunk(ofr, startPosition+(tSpaceHead-segHead));
             if (replementChunkNumber<0) {
                 // no more, just add the tail and jump out
+                // [SegHead, tSpaceHead)
+                fprintf(logFile, "[write]\tnew chunk at [%d, %ld)\n", startPosition, startPosition+(tSpaceHead-segHead));
+                fflush(logFile);
+                int oldSegNumber=findRightChunk(ofr, startPosition);
+                int oldSegNumberEnd=findRightChunk(ofr, startPosition+(tSpaceHead-segHead)-1);
+                if (oldSegNumber>=0) {
+                    if (oldSegNumberEnd<0) oldSegNumberEnd=ofr->chunkCount-1;
+                    int j;
+                    for (j=oldSegNumber; j<=oldSegNumberEnd; j++)
+                        newofr->chunkPosition[j]=0x7fffffff;
+                }
+
                 unsigned char md5[MD5_DIGEST_LENGTH];
                 char chunkname[2*MD5_DIGEST_LENGTH+1];
                 MD5_Final(md5, &ctx);
