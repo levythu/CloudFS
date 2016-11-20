@@ -36,7 +36,7 @@ static int dup_read_buffer(const char *buffer, int bufferLength) {
     tReadBuffer+=bufferLength;
     return bufferLength;
 }
-void pullChunkTable() {
+void pullChunkTable_FromS3() {
     char* buf=tReadBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
     S3Status s=cloud_get_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, dup_read_buffer);
     if (s!=S3StatusOK) {
@@ -55,6 +55,27 @@ void pullChunkTable() {
         }
     }
     free(buf);
+}
+void pullChunkTable() {
+    char* targetPath=getSSDPosition("/.chunkdir");
+    FILE* f=fopen(targetPath, "r");
+    free(targetPath);
+    if (!f) {
+        fprintf(logFile, "[pullChunkTable]\tError in fetching chunktable. Create new instead.");
+        fflush(logFile);
+    } else {
+        int N, i, useless;
+        char chunkName[200];
+        useless=fscanf(f, "%d", &N);
+        (void)useless;
+        for (i=0; i<N; i++) {
+            int* count=(int*)malloc(sizeof(int));
+            useless=fscanf(f, "%d %s", count, chunkName);
+            (void)useless;
+            HPutIfAbsent(chunkTable, chunkName, count);
+        }
+        fclose(f);
+    }
 }
 
 void* getChunkRaw(const char *chunkName, long *len) {
@@ -114,7 +135,7 @@ static int dup_write_buffer(char *buffer, int bufferLength) {
     tWriteBuffer+=bufferLength;
     return bufferLength;
 }
-bool pushChunkTable() {
+bool pushChunkTable_ToS3() {
     char* buf=tWriteBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
     int offset, i;
     sprintf(tWriteBuffer, "%d\n%n", getChunkCount(), &offset);
@@ -132,6 +153,24 @@ bool pushChunkTable() {
     S3Status s=cloud_put_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, writeBufferLen, dup_write_buffer);
     free(buf);
     return s==S3StatusOK;
+}
+bool pushChunkTable() {
+    char* targetPath=getSSDPosition("/.chunkdir");
+    FILE* f=fopen(targetPath, "w");
+    free(targetPath);
+    if (!f) return false;
+
+    int i;
+    fprintf(f, "%d\n", getChunkCount());
+    for (i=0; i<BIG_PRIME; i++) {
+        hashNode* p=chunkTable.table[i];
+        while (p) {
+            fprintf(f, "%d %s\n", *((int*)p->v), p->k);
+            p=p->next;
+        }
+    }
+    fclose(f);
+    return true;
 }
 
 bool putChunkRaw(const char *chunkname, long len, char *content) {
