@@ -1054,6 +1054,7 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
         }
         fprintf(logFile, "[write]\tapplying cascading modification\n");
         fflush(logFile);
+        // attention: may have bugs. what if the subsequent chunk has already been
         if (tSpaceHead!=segHead) {
             // still sth left, try to initiate new chunk in
             int replementChunkNumber=findRightChunk(ofr, startPosition+(tSpaceHead-segHead));
