@@ -52,6 +52,7 @@ typedef struct _openedFile {
     long* chunkPosition;
     int chunkCount;
     long totalLen;
+    bool dirty;
 
     int capacity;
 } openedFile;
@@ -85,6 +86,7 @@ openedFile* makeDupOF(openedFile* ofr) {
     ret->capacity=ofr->capacity;
     ret->chunkCount=ofr->chunkCount;
     ret->totalLen=ofr->totalLen;
+    ret->dirty=ofr->dirty;
     ret->chunkName=NULL;
     ret->chunkPosition=NULL;
 
@@ -139,6 +141,7 @@ void rearrangeChunkList(openedFile* ofr) {
     fprintf(logFile, "[rearrangeChunkList]\t\n");
     fflush(logFile);
     ofr->totalLen=-1;
+    ofr->dirty=true;
     qksortOnChunklist(ofr, 0, ofr->chunkCount-1);
     while (ofr->chunkCount>0 && ofr->chunkPosition[ofr->chunkCount-1]==0x7fffffff) {
         decChunkReference(ofr->chunkName[ofr->chunkCount-1]);
@@ -166,6 +169,7 @@ int findRightChunk(openedFile* ofr, long startPos) {
 // chunkName will be duplicated.
 void putChunk(openedFile* ofr, int chunkIndex, const char* chunkName, long startPos, long len, char* chunkContent) {
     ofr->totalLen=-1;
+    ofr->dirty=true;
     if (chunkIndex<ofr->chunkCount) {
         char* originalName=ofr->chunkName[chunkIndex];
         ofr->chunkName[chunkIndex]=dupString(chunkName);
@@ -625,6 +629,7 @@ void generateObjname(char *buf, const char *filename) {
 }
 
 int saveChunkedFile(const char *filename, openedFile* ofr) {
+    if (!ofr->dirty) return 0;
     FILE* f=fopen(filename, "w");
     if (!f) return -1;
     fprintf(f, "%d\n", ofr->chunkCount);
@@ -727,6 +732,7 @@ int loadInChunkedFile(const char *filename, openedFile* ofr) {
     ofr->capacity=ofr->chunkCount;
     ofr->chunkName=NULL;
     ofr->chunkPosition=NULL;
+    ofr->dirty=false;
     if (ofr->chunkCount==0) return 0;
     ofr->chunkName=(char**)malloc(sizeof(char*)*ofr->chunkCount);
     ofr->chunkPosition=(long*)malloc(sizeof(long)*ofr->chunkCount);
@@ -747,6 +753,7 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     openedFile* ofr=(openedFile*)malloc(sizeof(openedFile));
     ofr->refCount=0;
     ofr->totalLen=-1;
+    ofr->dirty=false;
     if (!HPutIfAbsent(openfileTable, target, ofr)) {
         free(ofr);
         ofr=(openedFile*)HGet(openfileTable, target);
