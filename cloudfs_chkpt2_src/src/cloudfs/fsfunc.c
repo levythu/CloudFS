@@ -59,7 +59,10 @@ typedef struct _openedFile {
 long getLen(openedFile* ofr) {
     if (ofr->totalLen>=0) return ofr->totalLen;
 
-    if (ofr->chunkCount==0) ofr->totalLen=0;
+    if (ofr->chunkCount==0) {
+        ofr->totalLen=0;
+        return ofr->totalLen;
+    }
     ofr->totalLen=ofr->chunkPosition[ofr->chunkCount-1]+getChunkLen(ofr->chunkName[ofr->chunkCount-1]);
     return ofr->totalLen;
 }
@@ -142,7 +145,7 @@ void rearrangeChunkList(openedFile* ofr) {
         free(ofr->chunkName[ofr->chunkCount-1]);
         ofr->chunkCount--;
     }
-    fprintf(logFile, "[rearrangeChunkList]\tDONE\n");
+    fprintf(logFile, "[rearrangeChunkList]\tDONE. rest: %d\n", ofr->chunkCount);
     fflush(logFile);
 }
 
@@ -348,7 +351,6 @@ int cloudfsRmDir(const char *pathname) {
 int cloudfsTruncate(const char *pathname, off_t length) {
     fprintf(logFile, "[truncate]\t%s\n", pathname);
     fflush(logFile);
-    // TODO
     char* target=getSSDPosition(pathname);
 
     int oc=onCloud(target);
@@ -361,6 +363,82 @@ int cloudfsTruncate(const char *pathname, off_t length) {
         free(target);
         if (ret>=0) return ret;
         return cloudfs_error("truncate error");
+    }
+    if (oc==2) {
+        struct fuse_file_info fi;
+        fi.flags=O_WRONLY;
+        if (cloudfsOpen(pathname, &fi)<0) {
+            free(target);
+            return cloudfs_error("truncate error");
+        }
+        openedFile* ofr=(openedFile*)HGet(openfileTable, target);
+        if (length<=fsConfig->threshold) {
+            // put the file back onto disk
+            char* smallFileContent=(char*)malloc(sizeof(char)*(length+10));
+            char* sfcHead=smallFileContent;
+            long rest=(long)length;
+            int i;
+            for (i=0; i<ofr->chunkCount; i++) {
+                long chunkLen;
+                char* tmp=getChunkRaw(ofr->chunkName[i], &chunkLen);
+                if (chunkLen>rest) chunkLen=rest;
+                memcpy(sfcHead, tmp, chunkLen);
+                free(tmp);
+                rest-=chunkLen;
+                sfcHead+=chunkLen;
+                if (rest==0) break;
+            }
+            for (i=0; i<ofr->chunkCount; i++) ofr->chunkPosition[i]=0x7fffffff;
+            rearrangeChunkList(ofr);
+            cloudfsRelease(pathname, &fi);
+            // write the content to the file
+            FILE* outfile=fopen(target, "wb");
+            if (!outfile) {
+                free(target);
+                free(smallFileContent);
+                return cloudfs_error("truncate error");
+            }
+            long written=0;
+            while (written<(long)length) {
+                written+=fwrite(smallFileContent+written, 1, ((long)length-written), outfile);
+            }
+            fclose(outfile);
+            free(smallFileContent);
+            if (setxattr(target, XATTR_ON_OLDCLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0)
+                cloudfs_error("disposeFile: put xattr error");
+            if (setxattr(target, XATTR_ON_CLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0)
+                cloudfs_error("disposeFile: put xattr error");
+        } else {
+            int endPoint=findRightChunk(ofr, length-1);
+            if (endPoint>=0) {
+                int i;
+                long startPos=ofr->chunkPosition[endPoint];
+                long cr;
+                for (i=endPoint; i<ofr->chunkCount; i++)
+                    ofr->chunkPosition[i]=0x7fffffff;
+                char* tmp=getChunkRaw(ofr->chunkName[endPoint], &cr);
+
+                long thisLen=length-startPos;
+                MD5_CTX ctx;
+                MD5_Init(&ctx);
+                MD5_Update(&ctx, tmp, thisLen);
+                unsigned char md5[MD5_DIGEST_LENGTH];
+                char chunkname[2*MD5_DIGEST_LENGTH+1];
+                MD5_Final(md5, &ctx);
+                for(i=0; i<MD5_DIGEST_LENGTH; i++)
+                    sprintf(chunkname+2*i, "%02x", md5[i]);
+                chunkname[2*MD5_DIGEST_LENGTH]=0;
+                putChunk(ofr, 0x7fffffff, chunkname, startPos, thisLen, tmp);
+                rearrangeChunkList(ofr);
+                free(tmp);
+                cloudfsRelease(pathname, &fi);
+            }
+        }
+        ofr=(openedFile*)HGet(openfileTable, target);
+        if (ofr) ofr->mode=0;
+        free(target);
+        pushChunkTable();
+        return 0;
     }
 
     char attrBuf[4096];
@@ -449,7 +527,6 @@ int getCloudName(const char *filename, char* attrBuf, int size) {
 int cloudfsUnlink(const char *pathname) {
     fprintf(logFile, "[unlink]\t%s\n", pathname);
     fflush(logFile);
-    // TODO
     char* target=getSSDPosition(pathname);
 
     char attrBuf[4096];
@@ -458,14 +535,20 @@ int cloudfsUnlink(const char *pathname) {
         free(target);
         return -1;
     }
-    int ret=unlink(target);
-    free(target);
-    if (ret<0) return cloudfs_error("unlink error");
     if (oc==1) {
         if (cloud_delete_object(CONTAINER_NAME, attrBuf)!=S3StatusOK) {
             cloudfs_error("removing error");
         }
     }
+    if (oc==2) {
+        if (cloudfsTruncate(pathname, 0)<0) {
+            free(target);
+            return cloudfs_error("removing error");
+        }
+    }
+    int ret=unlink(target);
+    free(target);
+    if (ret<0) return cloudfs_error("unlink error");
 
     return ret;
 }
@@ -572,6 +655,9 @@ int getOldCloudName(const char *filename, char* attrBuf, int size) {
     if (strcmp(attrBuf, XATTR_ON_CLOUD_NOV)==0) {
         return 0;
     }
+    if (strcmp(attrBuf, XATTR_ON_CLOUD_CHUNK)==0) {
+        return 0;
+    }
     return 1;
 }
 static FILE *infile;
@@ -584,7 +670,7 @@ int disposeFile(const char *filename) {
     if (ret<0) return cloudfs_error("disposeFile: get stat error");
     char attrBuf[4096];
 
-    if (tstat.st_size<=fsConfig->threshold) {
+    if (tstat.st_size<=fsConfig->threshold || !fsConfig->no_dedup) {
         int isCN=getOldCloudName(filename, attrBuf, 4096);
         if (isCN<0) return -1;
         if (isCN==1) {
@@ -873,6 +959,7 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
         if (!fsConfig->no_dedup && (long)(size+offset)>fsConfig->threshold) {
             close(fi->fh);
             convertFileToChunks(target, ofr);
+            fi->fh=0;
         }
         free(target);
         return transferred;
@@ -1016,6 +1103,7 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
     HRemove(openfileTable, target);
     HPutIfAbsent(openfileTable, target, newofr);
     free(target);
+    pushChunkTable();
     return oriSize;
 }
 

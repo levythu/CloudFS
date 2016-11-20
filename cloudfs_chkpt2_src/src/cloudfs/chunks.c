@@ -142,6 +142,15 @@ bool putChunkRaw(const char *chunkname, long len, char *content) {
     return s==S3StatusOK;
 }
 
+int deleteChunkRaw(const char *chunkname) {
+    if (cloud_delete_object(CONTAINER_NAME, chunkname)!=S3StatusOK) {
+        fprintf(logFile, "[deleteChunkRaw] removing error\t\n");
+        fflush(logFile);
+        return -1;
+    }
+    return 0;
+}
+
 void incChunkReference(const char* chunkname, long len, char* content) {
     fprintf(logFile, "[incChunkReference]\t\n");
     fflush(logFile);
@@ -162,7 +171,7 @@ bool decChunkReference(const char* chunkname) {
     int* t=(int*)HGet(chunkTable, chunkname);
     (*t)--;
     if (*t>0) return false;
-    // TODO: remove the chunk from cloud
+    deleteChunkRaw(chunkname);
     free(HRemove(chunkTable, chunkname));
     return true;
 }
