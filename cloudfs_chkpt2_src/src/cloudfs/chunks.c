@@ -191,7 +191,7 @@ int deleteChunkRaw(const char *chunkname) {
 }
 
 void incChunkReference(const char* chunkname, long len, char* content) {
-    fprintf(logFile, "[incChunkReference]\t\n");
+    fprintf(logFile, "[incChunkReference]\t%s\n", chunkname);
     fflush(logFile);
     int* tmp=(int*)malloc(sizeof(int));
     *tmp=0;
@@ -205,7 +205,7 @@ void incChunkReference(const char* chunkname, long len, char* content) {
 
 // [return] Whether a deletion has happened. Exception on non-exist chunck
 bool decChunkReference(const char* chunkname) {
-    fprintf(logFile, "[decChunkReference]\t\n");
+    fprintf(logFile, "[decChunkReference]\t%s\n", chunkname);
     fflush(logFile);
     int* t=(int*)HGet(chunkTable, chunkname);
     (*t)--;
