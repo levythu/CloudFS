@@ -41,12 +41,26 @@ struct cloudfs_state* fsConfig=NULL;
 Hashtable openfileTable;
 rabinpoly_t *rp=NULL;
 
+/*
+** openedFile is the core data structure of the inmemory representation of a file
+** it is single instanced, and managed by global hashtable. Once there's no
+** open file handler for a file, its openedFile structure will get destructed.
+**
+** if the mode is 0, it is a normal file (either a small file on disk or a big file
+** on cloud); otherwise it is a chunked file on the cloud. When the file size
+** exceeds limitation and nodedup==false, a file will be converted to mode 1.
+**
+** For a simple small file, it is stored on disk with XATTR_ON_CLOUD==XATTR_ON_CLOUD_NOV,
+** For a nodedup big file, it is stored on cloud, with XATTR_ON_CLOUD==its cloud name
+** For a chunked file, it is chunked on cloud, and store its chunklist containing
+**      its chunks and startPosition on disk, with XATTR_ON_CLOUD==XATTR_ON_CLOUD_CHUNK
+*/
 
 typedef struct _openedFile {
     int refCount;
     int mode;   // 0 for normal, 1 for dedup
 
-    // chunkTable is valid only mode==1, and both chunkName and chunkPosition
+    // the following members are valid only mode==1; both chunkName and chunkPosition
     // are array[0..chunkCount-1], and chunkPosition is an increasing array.
     char **chunkName;
     long* chunkPosition;
@@ -54,9 +68,13 @@ typedef struct _openedFile {
     long totalLen;
     bool dirty;
 
+    // capacity is the actual size of chunkName and chunkPosition. It should always
+    // be >=chunkCount. When smaller, double it.
     int capacity;
 } openedFile;
 
+// get the length of a file. Cache the length when needed (now deprecated since)
+// the chunk size is localized.
 long getLen(openedFile* ofr) {
     if (ofr->totalLen>=0) return ofr->totalLen;
 
@@ -68,6 +86,7 @@ long getLen(openedFile* ofr) {
     return ofr->totalLen;
 }
 
+// print the of just for debugging.
 void printOF(openedFile* ofr) {
     fprintf(logFile, "[printOF]================Size: %ld\n[", getLen(ofr));
     fflush(logFile);
@@ -79,6 +98,7 @@ void printOF(openedFile* ofr) {
     fflush(logFile);
 }
 
+// duplicate an OF. It performs a very deep copy of the data stucture.
 openedFile* makeDupOF(openedFile* ofr) {
     openedFile* ret=(openedFile*)malloc(sizeof(openedFile));
     ret->refCount=ofr->refCount;
@@ -102,6 +122,7 @@ openedFile* makeDupOF(openedFile* ofr) {
     return ret;
 }
 
+// dispose an OF. Release all the space
 void disposeOF(openedFile* ofr) {
     fprintf(logFile, "[disposeOF]\t\n");
     fflush(logFile);
@@ -116,6 +137,7 @@ void disposeOF(openedFile* ofr) {
     free(ofr);
 }
 
+// quick sort on OF.chunkPosition, and modify chunkName as required.
 void qksortOnChunklist(openedFile* ofr, int begg, int endd) {
     int i=begg, j=endd;
     long k=ofr->chunkPosition[(i+j)>>1];
@@ -137,6 +159,10 @@ void qksortOnChunklist(openedFile* ofr, int begg, int endd) {
     if (begg<j) qksortOnChunklist(ofr, begg, j);
     if (i<endd) qksortOnChunklist(ofr, i, endd);
 }
+
+// after truncate, or write, some chunks may be invalid (with chunkPosition==0x7fffffff)
+// and some new are appended. This function remove those invalid and sort the rest
+// so that the chunkPosition array is monotonously increasing
 void rearrangeChunkList(openedFile* ofr) {
     fprintf(logFile, "[rearrangeChunkList]\t\n");
     fflush(logFile);
@@ -152,7 +178,9 @@ void rearrangeChunkList(openedFile* ofr) {
     fflush(logFile);
 }
 
-// we don't consider sparse file
+// This function find the chunk startPos should belong to. If it exceeds the size
+// of the file, return -1; attention: it will not work when the chunks are not
+// contigent.
 int findRightChunk(openedFile* ofr, long startPos) {
     fprintf(logFile, "[findRightChunk]\t%ld\n", startPos);
     fflush(logFile);
@@ -166,7 +194,8 @@ int findRightChunk(openedFile* ofr, long startPos) {
 
 // if chunkIndex <ofr->chunkCount, replace it.
 // if chunkIndex>=ofr->chunkCount, append it.
-// chunkName will be duplicated.
+// chunkName will be duplicated. And all the references to the chunks will be
+// maintained.
 void putChunk(openedFile* ofr, int chunkIndex, const char* chunkName, long startPos, long len, char* chunkContent) {
     ofr->totalLen=-1;
     ofr->dirty=true;
@@ -224,7 +253,7 @@ int cloudfsMkdir(const char *pathname, mode_t mode) {
     return cloudfs_error("mkdir error");
 }
 
-// 1 for on, 0 for off, -1 for error, 2 for chunked
+// 1 for on (big cloud file), 0 for off, -1 for error, 2 for chunked
 int onCloud(const char *filename) {
     char attrBuf[4096];
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
@@ -369,6 +398,8 @@ int cloudfsTruncate(const char *pathname, off_t length) {
         return cloudfs_error("truncate error");
     }
     if (oc==2) {
+        // the file is chunked. So we should modify the trailing chunk and consider
+        // whether the file is truncated below threshold
         struct fuse_file_info fi;
         fi.flags=O_WRONLY;
         if (cloudfsOpen(pathname, &fi)<0) {
@@ -377,7 +408,7 @@ int cloudfsTruncate(const char *pathname, off_t length) {
         }
         openedFile* ofr=(openedFile*)HGet(openfileTable, target);
         if (length<=fsConfig->threshold) {
-            // put the file back onto disk
+            // the file is truncated below threshold, put the file back onto disk
             char* smallFileContent=(char*)malloc(sizeof(char)*(length+10));
             char* sfcHead=smallFileContent;
             long rest=(long)length;
@@ -392,6 +423,8 @@ int cloudfsTruncate(const char *pathname, off_t length) {
                 sfcHead+=chunkLen;
                 if (rest==0) break;
             }
+            // cut off all the chunks and perform a rearrangeChunkList. So that
+            // the references are maintained.
             for (i=0; i<ofr->chunkCount; i++) ofr->chunkPosition[i]=0x7fffffff;
             rearrangeChunkList(ofr);
             cloudfsRelease(pathname, &fi);
@@ -413,6 +446,8 @@ int cloudfsTruncate(const char *pathname, off_t length) {
             if (setxattr(target, XATTR_ON_CLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0)
                 cloudfs_error("disposeFile: put xattr error");
         } else {
+            // the file is still chunked. so modify the chunkList and consider alter
+            // the trailing chunk.
             int endPoint=findRightChunk(ofr, length-1);
             if (endPoint>=0) {
                 int i;
@@ -423,6 +458,7 @@ int cloudfsTruncate(const char *pathname, off_t length) {
                 char* tmp=getChunkRaw(ofr->chunkName[endPoint], &cr);
 
                 long thisLen=length-startPos;
+                // after truncated, the trailing chunk can be at most one chunk.
                 MD5_CTX ctx;
                 MD5_Init(&ctx);
                 MD5_Update(&ctx, tmp, thisLen);
@@ -511,6 +547,7 @@ int cloudfsChmod(const char * pathname, mode_t mode) {
     return cloudfs_error("chmod error");
 }
 
+// if the file is chunked, it is treated as no name on the cloud.
 int getCloudName(const char *filename, char* attrBuf, int size) {
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, size);
     if (len==-1) {
@@ -545,6 +582,8 @@ int cloudfsUnlink(const char *pathname) {
         }
     }
     if (oc==2) {
+        // when the file is chunked, we truncate it to zero to free all the chunks
+        // before really remove it
         if (cloudfsTruncate(pathname, 0)<0) {
             free(target);
             return cloudfs_error("removing error");
@@ -561,6 +600,8 @@ static FILE *outfile;
 int get_buffer(const char *buffer, int bufferLength) {
     return fwrite(buffer, 1, bufferLength, outfile);
 }
+// only work when the file is not chunked. (Old function for nodedup mode)
+// when error, return <0; when succ, return 0; when the file is chunked, return 1;
 int ensureFileExist(const char *filename) {
     char attrBuf[4096];
     int len=getxattr(filename, XATTR_ON_CLOUD, attrBuf, 4096);
@@ -669,6 +710,8 @@ static FILE *infile;
 int put_buffer(char *buffer, int bufferLength) {
     return fread(buffer, 1, bufferLength, infile);
 }
+// only work when the file is not chunked. (Old function for nodedup mode)
+// when error, return <0; when succ, return 0 (for chunked file nothing will be done);
 int disposeFile(const char *filename) {
     struct stat tstat;
     int ret=stat(filename, &tstat);
@@ -858,6 +901,7 @@ int cloudfsRead(const char *pathname, char *buf, size_t size, off_t offset, stru
         return transferred;
     }
 
+    // oops! the file is chunked.
     int transferred=0;
     while (size>0) {
         int chunkNumber=findRightChunk(ofr, offset);
@@ -932,6 +976,7 @@ void convertFileToChunks(const char* filename, openedFile* ofr) {
 		}
 	}
     if (nvs!=vs) {
+        // trailing chunk found. write it regardless of its length.
         MD5_Final(md5, &ctx);
         for(b = 0; b < MD5_DIGEST_LENGTH; b++) {
             sprintf(chunkname+(2*b), "%02x", md5[b]);
@@ -971,6 +1016,10 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
         free(target);
         return transferred;
     }
+    // oops! chunked file. We should firstly fetch the chunk where the startPosition
+    // is located, and then invalidating all the overlapped chunks, and put new chunks
+    // in. Keep track of the trailing chunk and concatenate it with subsequent chubks,
+    // until there's no chunk left.
 
     fprintf(logFile, "[write]\tchunk mode find\n");
     fflush(logFile);

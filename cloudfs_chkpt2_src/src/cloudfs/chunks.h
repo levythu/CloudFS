@@ -1,12 +1,19 @@
+/*
+** Functions to manage chunks on the cloud.
+*/
+
 #ifndef CHUNKS_H
 
 #define CHUNKS_H
 
+// initChunkTable will try to init the table from chunkDir file. If the file is
+// broken, initiate a blank one.
 extern void initChunkTable();
 extern bool pushChunkTable();
 extern void pullChunkTable();
 
-// Both inc and dec function will not push chunk table;
+// Both inc and dec function will not push chunk table; The invoker can manage a
+// batch submit in order to reduce disk IO overheads
 
 extern void incChunkReference(const char* chunkname, long len, char* content);
 

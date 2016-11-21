@@ -32,14 +32,6 @@ static int UNUSED cloudfs_error(char *error_str)
 {
     int retval = -errno;
 
-    // TODO:
-    //
-    // You may want to add your own logging/debugging functions for printing
-    // error messages. For example:
-    //
-    // debug_msg("ERROR happened. %s\n", error_str, strerror(errno));
-    //
-
     fprintf(stderr, "CloudFS Error: %s\n", error_str);
 
     /* FUSE always returns -errno to caller (yes, it is negative errno!) */
@@ -77,7 +69,6 @@ static
 struct fuse_operations cloudfs_operations = {
     .init           = cloudfs_init,
     //
-    // TODO
     //
     // This is where you add the VFS functions that your implementation of
     // MelangsFS will support, i.e. replace 'NULL' with 'melange_operation'
