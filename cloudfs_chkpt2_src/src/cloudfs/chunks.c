@@ -27,6 +27,7 @@
 #include "fsfunc.h"
 
 static Hashtable chunkTable;
+static Hashtable chunkSizeTable;
 
 #define CHUNKDIR_MAX_SIZE 10*1024*1024      // 10M
 
@@ -35,26 +36,6 @@ static int dup_read_buffer(const char *buffer, int bufferLength) {
     memcpy(tReadBuffer, buffer, bufferLength);
     tReadBuffer+=bufferLength;
     return bufferLength;
-}
-void pullChunkTable_FromS3() {
-    char* buf=tReadBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
-    S3Status s=cloud_get_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, dup_read_buffer);
-    if (s!=S3StatusOK) {
-        fprintf(logFile, "[pullChunkTable]\tError in fetching chunktable. Create new instead.");
-        fflush(logFile);
-    } else {
-        int N, i;
-        int offset=0, readlen;
-        char chunkName[200];
-        sscanf(buf, "%d%n", &N, &offset);
-        for (i=0; i<N; i++) {
-            int* count=(int*)malloc(sizeof(int));
-            sscanf(buf+offset, "%d %s%n", count, chunkName, &readlen);
-            offset+=readlen;
-            HPutIfAbsent(chunkTable, chunkName, count);
-        }
-    }
-    free(buf);
 }
 void pullChunkTable() {
     char* targetPath=getSSDPosition("/.chunkdir");
@@ -70,9 +51,11 @@ void pullChunkTable() {
         (void)useless;
         for (i=0; i<N; i++) {
             int* count=(int*)malloc(sizeof(int));
-            useless=fscanf(f, "%d %s", count, chunkName);
+            long* chunkSize=(long*)malloc(sizeof(long));
+            useless=fscanf(f, "%d %ld %s", count, chunkSize, chunkName);
             (void)useless;
             HPutIfAbsent(chunkTable, chunkName, count);
+            HPutIfAbsent(chunkSizeTable, chunkName, chunkSize);
         }
         fclose(f);
     }
@@ -97,9 +80,7 @@ void* getChunkRaw(const char *chunkName, long *len) {
 long getChunkLen(const char *chunkName) {
     fprintf(logFile, "[getChunkLen].\n");
     fflush(logFile);
-    long ret=0;
-    void* p=getChunkRaw(chunkName, &ret);
-    if (p) free(p);
+    long ret= *((long*)HGet(chunkSizeTable, chunkName));
     fprintf(logFile, "[getChunkLen].SUCC\n");
     fflush(logFile);
     return ret;
@@ -107,6 +88,7 @@ long getChunkLen(const char *chunkName) {
 
 void initChunkTable() {
     chunkTable=NewHashTable();
+    chunkSizeTable=NewHashTable();
     pullChunkTable();
 
     pushChunkTable();
@@ -135,25 +117,6 @@ static int dup_write_buffer(char *buffer, int bufferLength) {
     tWriteBuffer+=bufferLength;
     return bufferLength;
 }
-bool pushChunkTable_ToS3() {
-    char* buf=tWriteBuffer=(char*)malloc(sizeof(char)*CHUNKDIR_MAX_SIZE);
-    int offset, i;
-    sprintf(tWriteBuffer, "%d\n%n", getChunkCount(), &offset);
-    for (i=0; i<BIG_PRIME; i++) {
-        hashNode* p=chunkTable.table[i];
-        while (p) {
-            int len;
-            sprintf(tWriteBuffer+offset, "%d %s\n%n", *((int*)p->v), p->k, &len);
-            offset+=len;
-            p=p->next;
-        }
-    }
-    writeBufferLen=offset;
-
-    S3Status s=cloud_put_object(CONTAINER_NAME, CHUNK_DIRECTORY_NAME, writeBufferLen, dup_write_buffer);
-    free(buf);
-    return s==S3StatusOK;
-}
 bool pushChunkTable() {
     char* targetPath=getSSDPosition("/.chunkdir");
     FILE* f=fopen(targetPath, "w");
@@ -165,7 +128,7 @@ bool pushChunkTable() {
     for (i=0; i<BIG_PRIME; i++) {
         hashNode* p=chunkTable.table[i];
         while (p) {
-            fprintf(f, "%d %s\n", *((int*)p->v), p->k);
+            fprintf(f, "%d %ld %s\n", *((int*)p->v), *((long*)HGet(chunkSizeTable, p->k)), p->k);
             p=p->next;
         }
     }
@@ -199,6 +162,9 @@ void incChunkReference(const char* chunkname, long len, char* content) {
     else {
         // upload the chunk content
         putChunkRaw(chunkname, len, content);
+        long* chunkLen=(long*)malloc(sizeof(long));
+        *chunkLen=len;
+        HPutIfAbsent(chunkSizeTable, chunkname, chunkLen);
     }
     (*(int*)HGet(chunkTable, chunkname))++;
 }
@@ -212,5 +178,6 @@ bool decChunkReference(const char* chunkname) {
     if (*t>0) return false;
     deleteChunkRaw(chunkname);
     free(HRemove(chunkTable, chunkname));
+    free(HRemove(chunkSizeTable, chunkname));
     return true;
 }
