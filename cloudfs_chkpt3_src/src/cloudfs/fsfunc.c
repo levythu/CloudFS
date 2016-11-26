@@ -33,6 +33,7 @@
 #define XATTR_A_TIME "user.cloudfs.atime"
 #define XATTR_SIZE "user.cloudfs.size"
 #define XATTR_BNUM "user.cloudfs.blocknum"
+#define SNAPSHOT_FD "/.snapshot"
 
 #define MAX_CHUNK_NUM
 
@@ -271,9 +272,25 @@ int onCloud(const char *filename) {
     }
     return 1;
 }
+void cloudfsInitPlaceholder() {
+    char* targetPath=getSSDPosition("/.blankplaceholder");
+    FILE* f=fopen(targetPath, "w");
+    free(targetPath);
+    fclose(f);
+}
 int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
     fprintf(logFile, "[getattr]\t%s\n", pathname);
     fflush(logFile);
+    if (strcmp(pathname, SNAPSHOT_FD)==0) {
+        char* target=getSSDPosition("/.blankplaceholder");
+        int ret=stat(target, tstat);
+        free(target);
+        if (ret<0) {
+            return cloudfs_error("getattr error");
+        }
+        tstat->st_mode=0100444;
+        return 0;
+    }
     char* target=getSSDPosition(pathname);
     int ret=stat(target, tstat);
     if (ret<0) {
@@ -349,6 +366,7 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
 
 #define IGNORE_PATHNAME "/"
 #define IGNORE_FILENAME "lost+found"
+#define IGNORE_FILENAME2 ".blankplaceholder"
 int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUSED off_t offset, UNUSED struct fuse_file_info *fi) {
     fprintf(logFile, "[readdir]\t%s\n", pathname);
     fflush(logFile);
@@ -360,7 +378,11 @@ int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUS
     if (dir) {
         while ((ep=readdir(dir))) {
             if (strcmp(ep->d_name, IGNORE_FILENAME)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
+            if (strcmp(ep->d_name, IGNORE_FILENAME2)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
             filler(buf, ep->d_name, NULL, 0);
+        }
+        if (strcmp(pathname, IGNORE_PATHNAME)==0) {
+            filler(buf, SNAPSHOT_FD+1, NULL, 0);
         }
     } else {
         closedir(dir);
@@ -792,6 +814,9 @@ int loadInChunkedFile(const char *filename, openedFile* ofr) {
 int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     fprintf(logFile, "[open]\t%s\n", pathname);
     fflush(logFile);
+    if (strcmp(pathname, SNAPSHOT_FD)==0) {
+        if (fi->flags & O_RDONLY) return 0;
+    }
     char* target=getSSDPosition(pathname);
     openedFile* ofr=(openedFile*)malloc(sizeof(openedFile));
     ofr->refCount=0;
@@ -840,6 +865,9 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
 int cloudfsRelease(const char *pathname, struct fuse_file_info *fi) {
     fprintf(logFile, "[release]\t%s\n", pathname);
     fflush(logFile);
+    if (strcmp(pathname, SNAPSHOT_FD)==0) {
+        return 0;
+    }
     char* target=getSSDPosition(pathname);
     openedFile* ofr=(openedFile*)HGet(openfileTable, target);
     ofr->refCount--;
@@ -883,6 +911,9 @@ int cloudfsFsync(UNUSED const char* pathname, int isdatasync, struct fuse_file_i
 int cloudfsRead(const char *pathname, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
     fprintf(logFile, "[read]\t%s\n", pathname);
     fflush(logFile);
+    if (strcmp(pathname, SNAPSHOT_FD)==0) {
+        return 0;
+    }
 
     char* target=getSSDPosition(pathname);
     openedFile* ofr=(openedFile*)HGet(openfileTable, target);

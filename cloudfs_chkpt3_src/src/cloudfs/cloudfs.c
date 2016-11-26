@@ -51,7 +51,7 @@ void *cloudfs_init(struct fuse_conn_info *conn UNUSED)
     fprintf(logFile, "Created container\n");
     fflush(logFile);
 
-
+    cloudfsInitPlaceholder();
     rp=rabin_init(fsConfig->rabin_window_size, fsConfig->avg_seg_size, fsConfig->min_seg_size, fsConfig->max_seg_size);
     initChunkTable();
 
