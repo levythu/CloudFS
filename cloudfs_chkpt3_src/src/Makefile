@@ -1,6 +1,6 @@
 
 # --------------------------------------------------------------------------
-# VERBOSE Compile Information 
+# VERBOSE Compile Information
 ifdef VERBOSE
         VERBOSE = true
         VERBOSE_ECHO = @ echo
@@ -36,7 +36,7 @@ ifndef LIBXML2_LIBS
 endif
 
 # --------------------------------------------------------------------------
-# Setup FUSE flags 
+# Setup FUSE flags
 
 FUSE_CFLAGS := -D_FILE_OFFSET_BITS=64 \
 					 		 -DFUSE_USE_VERSION=26 \
@@ -60,8 +60,8 @@ ifndef CFLAGS
     endif
 endif
 
-#          $(CURL_CFLAGS) $(LIBXML2_CFLAGS) 
-	
+#          $(CURL_CFLAGS) $(LIBXML2_CFLAGS)
+
 CFLAGS += -Wall  -Wshadow -Wextra -Iinclude \
 					$(FUSE_CFLAGS) \
           -D__STRICT_ANSI__ \
@@ -81,7 +81,7 @@ endif
 # Default targets are everything
 
 .PHONY: all
-all: cloudfs 
+all: cloudfs
 
 # --------------------------------------------------------------------------
 # Compile target patterns
@@ -113,23 +113,26 @@ $(BUILD)/obj/%.o: dedup-lib/%.c
 # --------------------------------------------------------------------------
 # CloudFS targets
 
-.PHONY: cloudfs 
+.PHONY: cloudfs
 cloudfs: $(BUILD)/bin/cloudfs
 
 CLOUDFS_OBJS = $(BUILD)/obj/cloudfs.o \
 			   $(BUILD)/obj/cloudapi.o \
+			   $(BUILD)/obj/hashtable.o \
+			   $(BUILD)/obj/fsfunc.o \
+			   $(BUILD)/obj/chunks.o \
 			   $(BUILD)/obj/main.o
 #You can append other objects
 
 $(BUILD)/bin/cloudfs: $(CLOUDFS_OBJS)
 	$(QUIET_ECHO) $@: Building executable
 	@ mkdir -p $(dir $@)
-	$(VERBOSE_SHOW) gcc -o $@ $^ $(LDFLAGS) $(LIBRARY) 
+	$(VERBOSE_SHOW) gcc -o $@ $^ $(LDFLAGS) $(LIBRARY)
 
 # --------------------------------------------------------------------------
 # Example targets
 
-.PHONY: cloud-example 
+.PHONY: cloud-example
 cloud-example: $(BUILD)/bin/cloud-example
 
 CLOUDFS_OBJS = $(BUILD)/obj/cloudapi.o \
@@ -140,7 +143,7 @@ $(BUILD)/bin/cloud-example: $(CLOUDFS_OBJS)
 	@ mkdir -p $(dir $@)
 	$(VERBOSE_SHOW) gcc -o $@ $^ $(LDFLAGS) $(LIBRARY)
 
-.PHONY: rabin-example 
+.PHONY: rabin-example
 rabin-example: $(BUILD)/bin/rabin-example
 
 CLOUDFS_OBJS = $(BUILD)/obj/rabin-example.o
@@ -148,7 +151,7 @@ CLOUDFS_OBJS = $(BUILD)/obj/rabin-example.o
 $(BUILD)/bin/rabin-example: $(CLOUDFS_OBJS)
 	$(QUIET_ECHO) $@: Building executable
 	@ mkdir -p $(dir $@)
-	$(VERBOSE_SHOW) gcc -o $@ $^ $(LDFLAGS) $(LIBRARY) 
+	$(VERBOSE_SHOW) gcc -o $@ $^ $(LDFLAGS) $(LIBRARY)
 
 # --------------------------------------------------------------------------
 # Clean target
