@@ -1,0 +1,76 @@
+Setup and Billing
+-----------------
+
+ 1. Create an AWS account at https://aws.amazon.com/ if you don't have one
+    already.
+ 2. If your account is new, it comes with 750 hours/month (for 12 months) of
+    free instance time. You need to use the "Free-Tier" instances in order to
+    take advantage of that promotion.
+ 3. If you need AWS credits for the course, visit https://goo.gl/OidYgg and
+    enter your Andrew ID. We will be emailing you a $50 voucher. You can start
+    using AWS without the voucher, since Amazon will not bill you until the end
+    of the month.
+ 4. To monitor your billing and usage, sign in to your AWS account, click on
+    the drop-down menu with your account name and click on "Billing & Cost
+    Management".
+
+Starting your AWS instance
+--------------------------
+
+ 1. Sign into your AWS account.
+ 2. Click on EC2 under "Compute Services" to be taken to the EC2 Dashboard.
+ 3. On the right corner of the top bar, click the second drop-down menu from
+    the right to select the datacenter you will be using. Select "N. Virginia".
+ 4. In the sidebar on the left, click on "AMIs" under the "Images" group.
+ 5. Click on the drop-down menu under "Launch" and select "Public images".
+ 6. Use the bar to the right of the drop-down menu to search for '746-cloudfs'.
+    Double-check that the image owner is "169965024155". This is the VM image
+	for the course. Use the refresh button at the top right if the image
+	doesn't show up right away.
+ 7. Select the AMI, and click "Launch".
+ 8. Make sure the "t2.micro" instance type is selected (which is also Free-tier
+    eligible, if you are using a new account that benefits from that
+    promotion).
+ 9. Click "Review and Launch".
+10. On the next screen click "Launch".
+11. In the first drop-down menu select "Proceed without a key pair", and check
+    the checkbox. We have provided you with a key to access the instance, named
+    '746-student.pem'. You should be able to find it on the course website.
+12. Click "Launch Instances", and on the next screen click "View Instances"
+13. In the EC2 Dashboard Instances screen wait for your VM instance state to
+    transition to "running", and the VM status checks to indicate "2/2 checks
+    passed".
+14. Select your instance and check the 'Public DNS' column. Make a note of the
+    machine's FQDN, which will be of the form X.compute-Y.amazonaws.com
+15. From your terminal, run
+
+       ssh -i "path/to/746-student.pem" student@X.compute-Y.amazonaws.com
+
+    - Make sure the path passed to the -i option points to the 746-student.pem
+      key pair you downloaded from the course website
+    - Remember to run "chmod 400 746-student.pem" to ensure your key pair file
+      carries the right permissions
+16. Run the ssh command to connect to your instance!
+
+Securing your AWS instance
+--------------------------
+
+It is a good idea to change the key you use to login to your AWS instance, and
+stop using the 746-student.pem which the AWS template comes configured with. To
+do so, we provide a simple script: make_secret_key.sh which will generate a new
+key and use it to replace 746-student.pem on your instance. Note that if you
+terminate your instance and create it again from the template image, you will
+have to run this script again.
+
+Terminating your AWS instance
+-----------------------------
+
+When you are done using your VM, you can stop it or terminate it. You can stop
+your VM by running the shutdown command from within Ubuntu, or using Actions >
+Instance State > Stop.
+
+Be warned that when your VM is stopped it still consumes resources, which will
+lead to usage charges for EBS storage (and you may run out of your credit
+faster). Instead of stopping your VM, make sure to copy out your source code
+when you're done, and then terminate your instance. You can do that via
+Actions > Instance State > Terminate.
