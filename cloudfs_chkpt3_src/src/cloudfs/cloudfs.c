@@ -24,6 +24,7 @@
 #include "hashtable.h"
 #include "fsfunc.h"
 #include "chunks.h"
+#include "snapshot.h"
 
 
 #define UNUSED __attribute__((unused))
@@ -54,6 +55,7 @@ void *cloudfs_init(struct fuse_conn_info *conn UNUSED)
     cloudfsInitPlaceholder();
     rp=rabin_init(fsConfig->rabin_window_size, fsConfig->avg_seg_size, fsConfig->min_seg_size, fsConfig->max_seg_size);
     initChunkTable();
+    initSnapshot();
 
     return NULL;
 }
@@ -117,8 +119,8 @@ int cloudfs_start(struct cloudfs_state *state,
   fsConfig=&state_;
   openfileTable=NewHashTable();
 
-  //logFile=fopen("/tmp/cloudfs.log", "w");
-  logFile=fopen("/dev/null", "w+");
+  logFile=fopen("/tmp/cloudfs.log", "w");
+  //logFile=fopen("/dev/null", "w+");
 
   int fuse_stat = fuse_main(argc, argv, &cloudfs_operations, NULL);
 

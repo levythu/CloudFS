@@ -1,0 +1,2 @@
+tar -zcvf huahua.tar.gz ./ --xattrs --exclude lost+found --exclude .blankplaceholder --exclude .chunkdir --exclude .snapshotbox
+tar -zxvf huahua.tar.gz --xattrs

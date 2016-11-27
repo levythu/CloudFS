@@ -22,6 +22,7 @@
 #include "cloudfs.h"
 #include "fsfunc.h"
 #include "chunks.h"
+#include "snapshot.h"
 
 #define UNUSED __attribute__((unused))
 
@@ -241,6 +242,11 @@ char* getSSDPosition(const char *pathname) {
     char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
     strcpy(newStr, fsConfig->ssd_path);
     strcat(newStr, pathname);
+    return newStr;
+}
+char* getSSDPositionSlash(const char *pathname) {
+    char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
+    sprintf(newStr, "%s/%s", fsConfig->ssd_path, pathname);
     return newStr;
 }
 
@@ -815,7 +821,12 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     fprintf(logFile, "[open]\t%s\n", pathname);
     fflush(logFile);
     if (strcmp(pathname, SNAPSHOT_FD)==0) {
-        if (fi->flags & O_RDONLY) return 0;
+        fprintf(logFile, "[open]\tSpecial File! %d\n", fi->flags);
+        fflush(logFile);
+        if ((fi->flags & O_WRONLY)==0) {
+            createSnapshot();
+            return 0;
+        }
     }
     char* target=getSSDPosition(pathname);
     openedFile* ofr=(openedFile*)malloc(sizeof(openedFile));

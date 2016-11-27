@@ -43,6 +43,7 @@ FUSE_CFLAGS := -D_FILE_OFFSET_BITS=64 \
 					     -I/usr/local/include/fuse \
 					     -I/usr/include/fuse \
 						 -Icloud-lib \
+						 -Isnapshot \
 						 -Idedup-lib
 
 FUSE_LIBS := -lfuse
@@ -121,6 +122,7 @@ CLOUDFS_OBJS = $(BUILD)/obj/cloudfs.o \
 			   $(BUILD)/obj/hashtable.o \
 			   $(BUILD)/obj/fsfunc.o \
 			   $(BUILD)/obj/chunks.o \
+			   $(BUILD)/obj/snapshot.o \
 			   $(BUILD)/obj/main.o
 #You can append other objects
 
