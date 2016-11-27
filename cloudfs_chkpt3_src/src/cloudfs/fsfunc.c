@@ -1256,6 +1256,10 @@ int cloudfsIOctl(const char *pathname, int cmd, UNUSED void *arg, UNUSED struct 
         int ret=uninstallSnapshot(*(long*)data);
         pushSnapshot();
         return ret;
+    } else if (cmd==CLOUDFS_DELETE) {
+        int ret=removeSnapshot(*(long*)data);
+        pushSnapshot();
+        return ret;
     }
     return -1;
 }

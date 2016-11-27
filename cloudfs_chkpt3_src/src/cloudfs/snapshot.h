@@ -9,5 +9,6 @@ extern long createSnapshot();
 extern int listSnapshot(long* retSpace);
 extern int installSnapshot(long timestamp);
 extern int uninstallSnapshot(long timestamp);
+extern int removeSnapshot(long timestamp);
 
 #endif

@@ -256,3 +256,44 @@ int uninstallSnapshot(long timestamp) {
     installedSnapshot--;
     return 0;
 }
+
+int removeSnapshot(long timestamp) {
+    int target;
+    if ((target=searchForSnapshot(timestamp))<0) return -1;
+    if (isInstalled[target]) return -2;
+    if (installSnapshot(timestamp)<0) return -3;
+
+    char iFolderName[MAX_PATH_LEN];
+    char chunkDirPath[MAX_PATH_LEN];
+    sprintf(chunkDirPath, "%s.chunkdir", getSnapshotInstallPositionFromTimestamp(iFolderName, timestamp));
+
+    FILE* f=fopen(chunkDirPath, "r");
+    if (f) {
+        int N, i, useless;
+        char chunkName[200];
+        useless=fscanf(f, "%d", &N);
+        (void)useless;
+        for (i=0; i<N; i++) {
+            int count;
+            long chunkSize;
+            useless=fscanf(f, "%d %ld %s", &count, &chunkSize, chunkName);
+            (void)useless;
+            (void)count;
+            (void)chunkSize;
+            decChunkReference(chunkName);
+        }
+        pushChunkTable();
+        fclose(f);
+    }
+
+    uninstallSnapshot(timestamp);
+    cloud_delete_object(CONTAINER_NAME, getSnapshotNameFromTimestamp(chunkDirPath, timestamp));
+
+    int i;
+    for (i=target+1; i<sizeSnapshotBox; i++) {
+        snapshotBox[i-1]=snapshotBox[i];
+        isInstalled[i-1]=isInstalled[i];
+    }
+    sizeSnapshotBox--;
+    return 0;
+}
