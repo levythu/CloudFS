@@ -27,19 +27,55 @@
 #include "chunks.h"
 #include "snapshot-api.h"
 
+#define UNUSED __attribute__((unused))
+
 static long snapshotBox[CLOUDFS_MAX_NUM_SNAPSHOTS+2];
 static int isInstalled[CLOUDFS_MAX_NUM_SNAPSHOTS+2];
 static int sizeSnapshotBox;
 static int installedSnapshot=0;
 
+const char SNAPSHOT_TAR_PREFIX[]=".snapshot.";
+void qsortSnapshotBox(int begg, int endd) {
+    int i=begg, j=endd;
+    long k=snapshotBox[(i+j)>>1];
+    while (i<=j) {
+        while (snapshotBox[i]<k) i++;
+        while (snapshotBox[j]>k) j--;
+        if (i<=j) {
+            long t=snapshotBox[i];
+            snapshotBox[i]=snapshotBox[j];
+            snapshotBox[j]=t;
+            i++;
+            j--;
+        }
+    }
+    if (begg<j) qsortSnapshotBox(begg, j);
+    if (i<endd) qsortSnapshotBox(i, endd);
+}
+static int list_bucket(const char *key, UNUSED time_t modified_time, UNUSED uint64_t size) {
+    int i, N=strlen(SNAPSHOT_TAR_PREFIX);
+    for (i=0; i<N; i++) {
+        if (key[i]!=SNAPSHOT_TAR_PREFIX[i]) return 0;
+    }
+    long theTime;
+    sscanf(key+N, "%ld", &theTime);
+    fprintf(logFile, "[pullSnapshot]\tIngest %ld...\n", theTime);
+    fflush(logFile);
+    snapshotBox[sizeSnapshotBox]=theTime;
+    isInstalled[sizeSnapshotBox]=false;
+    sizeSnapshotBox++;
+    return 0;
+}
 void pullSnapshot() {
     char* targetPath=getSSDPosition("/.snapshotbox");
     FILE* f=fopen(targetPath, "r");
     free(targetPath);
     if (!f) {
-        fprintf(logFile, "[pullSnapshot]\tNo snapshot box file. Create zero.");
+        fprintf(logFile, "[pullSnapshot]\tNo snapshot box file. Trying to get one from cloud...\n");
         fflush(logFile);
         sizeSnapshotBox=0;
+        cloud_list_bucket(CONTAINER_NAME, list_bucket);
+        if (sizeSnapshotBox>1) qsortSnapshotBox(0, sizeSnapshotBox-1);
     } else {
         int useless=fscanf(f, "%d", &sizeSnapshotBox);
         (void)useless;
