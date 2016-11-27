@@ -17,6 +17,7 @@ extern void* HRemove(Hashtable obj, const char* key);
 extern void* HGet(Hashtable obj, const char* key);
 extern bool HPutIfAbsent(Hashtable obj, const char* key, void* v);
 extern void HRelease(Hashtable obj);
+extern void HReleaseWithV(Hashtable obj);
 
 extern Hashtable NewHashTable();
 

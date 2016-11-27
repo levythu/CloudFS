@@ -10,6 +10,21 @@ Hashtable NewHashTable() {
     return ret;
 }
 
+void HReleaseWithV(Hashtable obj) {
+    int i;
+    for (i=0; i<BIG_PRIME; i++) {
+        hashNode* p=obj.table[i];
+        while (p) {
+            hashNode* q=p->next;
+            free(p->k);
+            free(p->v);
+            free(p);
+            p=q;
+        }
+    }
+    free(obj.table);
+}
+
 void HRelease(Hashtable obj) {
     int i;
     for (i=0; i<BIG_PRIME; i++) {

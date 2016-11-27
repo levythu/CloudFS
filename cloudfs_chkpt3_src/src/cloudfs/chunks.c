@@ -64,6 +64,7 @@ void pullChunkTable() {
 void rebaseChunkTable() {
     int i;
     Hashtable oldchunkTable=chunkTable;
+    HReleaseWithV(chunkSizeTable);
 
     initChunkTable();
     for (i=0; i<BIG_PRIME; i++) {
@@ -80,7 +81,7 @@ void rebaseChunkTable() {
             p=p->next;
         }
     }
-    // TODO:dispose oldchunkTable and previous sizeTable
+    HReleaseWithV(oldchunkTable);
 }
 
 
