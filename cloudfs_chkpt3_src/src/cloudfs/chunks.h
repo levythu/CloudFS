@@ -16,6 +16,7 @@ extern void pullChunkTable();
 // batch submit in order to reduce disk IO overheads
 
 extern void incChunkReference(const char* chunkname, long len, char* content);
+extern void incALLReference();
 
 // [return] Whether a deletion has happened. Exception on non-exist chunck
 extern bool decChunkReference(const char* chunkname);

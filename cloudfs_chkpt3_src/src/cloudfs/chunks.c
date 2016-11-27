@@ -169,6 +169,19 @@ void incChunkReference(const char* chunkname, long len, char* content) {
     (*(int*)HGet(chunkTable, chunkname))++;
 }
 
+void incALLReference() {
+    fprintf(logFile, "[incALLReference]\n");
+    fflush(logFile);
+    int i;
+    for (i=0; i<BIG_PRIME; i++) {
+        hashNode* p=chunkTable.table[i];
+        while (p) {
+            (*((int*)p->v))++;
+            p=p->next;
+        }
+    }
+}
+
 // [return] Whether a deletion has happened. Exception on non-exist chunck
 bool decChunkReference(const char* chunkname) {
     fprintf(logFile, "[decChunkReference]\t%s\n", chunkname);

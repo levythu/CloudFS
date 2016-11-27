@@ -18,6 +18,7 @@
 #include <openssl/md5.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/time.h>
 #include "cloudapi.h"
 #include "cloudfs.h"
 #include "dedup.h"
@@ -25,7 +26,6 @@
 #include "fsfunc.h"
 #include "chunks.h"
 #include "snapshot-api.h"
-#include <sys/time.h>
 
 static long snapshotBox[CLOUDFS_MAX_NUM_SNAPSHOTS+2];
 static int sizeSnapshotBox;
@@ -88,7 +88,7 @@ void* generateTarCmd(const char* tarName) {
     char* tarFilename=getSSDPositionSlash(tarName);
     char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
     sprintf(newStr,
-        "tar -zcvf %s %s --xattrs --exclude lost+found --exclude .blankplaceholder --exclude .chunkdir --exclude .snapshotbox",
+        "tar -zcvf %s -C %s . --xattrs --exclude lost+found --exclude .blankplaceholder --exclude .chunkdir --exclude .snapshotbox",
         tarFilename, rootDir
     );
     free(rootDir);
@@ -101,8 +101,8 @@ static int put_buffer(char *buffer, int bufferLength) {
     return fread(buffer, 1, bufferLength, infile);
 }
 
-char* createSnapshot() {
-    if (sizeSnapshotBox>=CLOUDFS_MAX_NUM_SNAPSHOTS) return NULL;
+long createSnapshot() {
+    if (sizeSnapshotBox>=CLOUDFS_MAX_NUM_SNAPSHOTS) return -1;
     long currentTS=unixMilli();
     fprintf(logFile, "[createSnapshot]\tCreating snapshot at %ld\n", currentTS);
     fflush(logFile);
@@ -111,23 +111,31 @@ char* createSnapshot() {
     int status=system(cmdLine);
     free(cmdLine);
     if (status<0 || !WIFEXITED(status)) {
-        return NULL;
+        return -1;
     }
 
     char* tarFilepath=getSSDPositionSlash(tarName);
     struct stat tstat;
     if (stat(tarFilepath, &tstat)<0) {
         free(tarFilepath);
-        return NULL;
+        return -1;
     }
     infile=fopen(tarFilepath, "rb");
     if (infile == NULL) {
         free(tarFilepath);
-        return NULL;
+        return -1;
     }
-    free(tarFilepath);
     S3Status s=cloud_put_object(CONTAINER_NAME, tarName, tstat.st_size, put_buffer);
     fclose(infile);
-    if (s!=S3StatusOK) return NULL;
-    return dupString(tarName);
+    if (s!=S3StatusOK) {
+        free(tarFilepath);
+        return -1;
+    }
+    snapshotBox[sizeSnapshotBox++]=currentTS;
+    unlink(tarFilepath);
+    free(tarFilepath);
+    incALLReference();
+    pushChunkTable();
+
+    return currentTS;
 }

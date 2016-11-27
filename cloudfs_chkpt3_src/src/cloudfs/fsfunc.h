@@ -19,6 +19,7 @@ extern int cloudfsChmod(const char * pathname, mode_t mode);
 extern int cloudfsGetXAttr(const char *path, const char *name, char *value, size_t size);
 extern int cloudfsSetXAttr(const char *path, const char *name, const char *value, size_t size, int flags);
 extern int cloudfsAccess(const char *pathname, int mask);
+extern int cloudfsIOctl(const char *pathname, int cmd, void *arg, struct fuse_file_info *fi, unsigned int flags, void *data);
 extern void cloudfsInitPlaceholder();
 
 extern FILE *logFile;

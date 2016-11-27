@@ -23,6 +23,7 @@
 #include "fsfunc.h"
 #include "chunks.h"
 #include "snapshot.h"
+#include "snapshot-api.h"
 
 #define UNUSED __attribute__((unused))
 
@@ -824,7 +825,6 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
         fprintf(logFile, "[open]\tSpecial File! %d\n", fi->flags);
         fflush(logFile);
         if ((fi->flags & O_WRONLY)==0) {
-            createSnapshot();
             return 0;
         }
     }
@@ -1234,4 +1234,15 @@ int cloudfsAccess(const char *pathname, int mask) {
     int ret=access(target, mask);
     free(target);
     return ret;
+}
+
+int cloudfsIOctl(const char *pathname, int cmd, UNUSED void *arg, UNUSED struct fuse_file_info *fi, UNUSED unsigned int flags, void *data) {
+    if (strcmp(pathname, SNAPSHOT_FD)!=0) return -1;
+    if (cmd==CLOUDFS_SNAPSHOT) {
+        long ext=createSnapshot();
+        if (ext<0) return -1;
+        *(unsigned long*)data=(unsigned long)ext;
+        return 0;
+    }
+    return -1;
 }

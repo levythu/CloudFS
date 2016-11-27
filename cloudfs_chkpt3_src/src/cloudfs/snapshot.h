@@ -5,6 +5,6 @@ extern void initSnapshot();
 extern bool pushSnapshot();
 extern void pullSnapshot();
 
-char* createSnapshot();
+long createSnapshot();
 
 #endif

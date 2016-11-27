@@ -100,6 +100,7 @@ struct fuse_operations cloudfs_operations = {
     .getxattr       = cloudfsGetXAttr,
     .setxattr       = cloudfsSetXAttr,
     .destroy        = cloudfs_destroy,
+    .ioctl          = cloudfsIOctl,
     .access         = cloudfsAccess
 };
 
