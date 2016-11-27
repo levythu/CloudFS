@@ -27,8 +27,9 @@ extern struct cloudfs_state* fsConfig;
 extern Hashtable openfileTable;
 extern rabinpoly_t *rp;
 
-char* getSSDPosition(const char *pathname);
-char* getSSDPositionSlash(const char *pathname);
+extern char* getSSDPosition(const char *pathname);
+extern char* getSSDPositionSlash(const char *pathname);
+extern char* getFusePosition(const char *pathname);
 
 #define CONTAINER_NAME "test1"
 #define CHUNK_DIRECTORY_NAME ".chunkdir"

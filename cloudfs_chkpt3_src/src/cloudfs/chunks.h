@@ -11,6 +11,7 @@
 extern void initChunkTable();
 extern bool pushChunkTable();
 extern void pullChunkTable();
+extern void rebaseChunkTable();
 
 // Both inc and dec function will not push chunk table; The invoker can manage a
 // batch submit in order to reduce disk IO overheads
@@ -29,5 +30,6 @@ extern bool decChunkReference(const char* chunkname);
 extern void* getChunkRaw(const char *chunkname, long *len);
 extern long getChunkLen(const char *chunkname);
 extern bool putChunkRaw(const char *chunkname, long len, char *content);
+extern int deleteChunkRaw(const char *chunkname);
 
 #endif

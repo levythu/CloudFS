@@ -297,3 +297,55 @@ int removeSnapshot(long timestamp) {
     sizeSnapshotBox--;
     return 0;
 }
+
+int restoreSnapshot(long timestamp) {
+    int target;
+    if ((target=searchForSnapshot(timestamp))<0) return -1;
+    if (installedSnapshot>0) return -2;
+    int i;
+    char tarName[MAX_PATH_LEN];
+    for (i=sizeSnapshotBox-1; i>target; i--) {
+        cloud_delete_object(CONTAINER_NAME, getSnapshotNameFromTimestamp(tarName, snapshotBox[i]));
+    }
+    sizeSnapshotBox=target+1;
+
+    // clean all old files
+
+    char* cleanTarget=getSSDPosition("*");
+    char* cmdLine=generateCleanCmd(cleanTarget);
+    free(cleanTarget);
+    int status=system(cmdLine);
+    free(cmdLine);
+    if (status<0 || !WIFEXITED(status)) {
+        return -5;
+    }
+
+    char absTarName[MAX_PATH_LEN];
+    char* iFolderName=getSSDPosition("/");
+    sprintf(absTarName, "%s%s", iFolderName, getSnapshotNameFromTimestamp(tarName, timestamp));
+
+    outfile=fopen(absTarName, "wb");
+    S3Status s=cloud_get_object(CONTAINER_NAME, tarName, get_buffer);
+    fclose(outfile);
+    if (s!=S3StatusOK) {
+        free(iFolderName);
+        return -4;
+    }
+
+    cmdLine=generateUntarCmd(absTarName, iFolderName);
+    status=system(cmdLine);
+    free(cmdLine);
+    free(iFolderName);
+    if (status<0 || !WIFEXITED(status)) {
+        return -5;
+    }
+
+    // TODO: mem leak
+    rebaseChunkTable();
+    incALLReference();
+    pushChunkTable();
+
+    unlink(absTarName);
+
+    return 0;
+}

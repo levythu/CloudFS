@@ -61,6 +61,29 @@ void pullChunkTable() {
     }
 }
 
+void rebaseChunkTable() {
+    int i;
+    Hashtable oldchunkTable=chunkTable;
+
+    initChunkTable();
+    for (i=0; i<BIG_PRIME; i++) {
+        hashNode* p=chunkTable.table[i];
+        while (p) {
+            free(HRemove(oldchunkTable, p->k));
+            p=p->next;
+        }
+    }
+    for (i=0; i<BIG_PRIME; i++) {
+        hashNode* p=oldchunkTable.table[i];
+        while (p) {
+            deleteChunkRaw(p->k);
+            p=p->next;
+        }
+    }
+    // TODO:dispose oldchunkTable and previous sizeTable
+}
+
+
 void* getChunkRaw(const char *chunkName, long *len) {
     fprintf(logFile, "[getChunkRaw]\t%s\n", chunkName);
     fflush(logFile);

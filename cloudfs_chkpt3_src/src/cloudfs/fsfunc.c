@@ -245,6 +245,12 @@ char* getSSDPosition(const char *pathname) {
     strcat(newStr, pathname);
     return newStr;
 }
+char* getFusePosition(const char *pathname) {
+    char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
+    strcpy(newStr, fsConfig->fuse_path);
+    strcat(newStr, pathname);
+    return newStr;
+}
 char* getSSDPositionSlash(const char *pathname) {
     char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
     sprintf(newStr, "%s/%s", fsConfig->ssd_path, pathname);
@@ -374,6 +380,8 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
 #define IGNORE_PATHNAME "/"
 #define IGNORE_FILENAME "lost+found"
 #define IGNORE_FILENAME2 ".blankplaceholder"
+#define IGNORE_FILENAME3 ".snapshotbox"
+#define IGNORE_FILENAME4 ".chunkdir"
 int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUSED off_t offset, UNUSED struct fuse_file_info *fi) {
     fprintf(logFile, "[readdir]\t%s\n", pathname);
     fflush(logFile);
@@ -386,6 +394,8 @@ int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUS
         while ((ep=readdir(dir))) {
             if (strcmp(ep->d_name, IGNORE_FILENAME)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
             if (strcmp(ep->d_name, IGNORE_FILENAME2)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
+            if (strcmp(ep->d_name, IGNORE_FILENAME3)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
+            if (strcmp(ep->d_name, IGNORE_FILENAME4)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
             filler(buf, ep->d_name, NULL, 0);
         }
         if (strcmp(pathname, IGNORE_PATHNAME)==0) {
@@ -1258,6 +1268,10 @@ int cloudfsIOctl(const char *pathname, int cmd, UNUSED void *arg, UNUSED struct 
         return ret;
     } else if (cmd==CLOUDFS_DELETE) {
         int ret=removeSnapshot(*(long*)data);
+        pushSnapshot();
+        return ret;
+    } else if (cmd==CLOUDFS_RESTORE) {
+        int ret=restoreSnapshot(*(long*)data);
         pushSnapshot();
         return ret;
     }
