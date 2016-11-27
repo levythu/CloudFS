@@ -469,6 +469,7 @@ int cloudfsTruncate(const char *pathname, off_t length) {
                 written+=fwrite(smallFileContent+written, 1, ((long)length-written), outfile);
             }
             fclose(outfile);
+            // TODO: bug: when truncating and write it above threshold. Crash.
             free(smallFileContent);
             if (setxattr(target, XATTR_ON_OLDCLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0)
                 cloudfs_error("disposeFile: put xattr error");
@@ -1241,8 +1242,20 @@ int cloudfsIOctl(const char *pathname, int cmd, UNUSED void *arg, UNUSED struct 
     if (cmd==CLOUDFS_SNAPSHOT) {
         long ext=createSnapshot();
         if (ext<0) return -1;
+        pushSnapshot();
         *(unsigned long*)data=(unsigned long)ext;
         return 0;
+    } else if (cmd==CLOUDFS_SNAPSHOT_LIST) {
+        listSnapshot((long*)data);
+        return 0;
+    } else if (cmd==CLOUDFS_INSTALL_SNAPSHOT) {
+        int ret=installSnapshot(*(long*)data);
+        pushSnapshot();
+        return ret;
+    } else if (cmd==CLOUDFS_UNINSTALL_SNAPSHOT) {
+        int ret=uninstallSnapshot(*(long*)data);
+        pushSnapshot();
+        return ret;
     }
     return -1;
 }
