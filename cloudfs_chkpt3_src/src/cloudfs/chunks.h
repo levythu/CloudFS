@@ -32,4 +32,9 @@ extern long getChunkLen(const char *chunkname);
 extern bool putChunkRaw(const char *chunkname, long len, char *content);
 extern int deleteChunkRaw(const char *chunkname);
 
+// invoked by cache
+extern void* nc__getChunkRaw(const char *chunkname, long *len);
+extern bool nc__putChunkRaw(const char *chunkname, long len, char *content);
+extern int nc__deleteChunkRaw(const char *chunkname);
+
 #endif

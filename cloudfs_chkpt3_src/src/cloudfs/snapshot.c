@@ -133,7 +133,7 @@ void* generateTarCmd(const char* tarName) {
     char* tarFilename=getSSDPositionSlash(tarName);
     char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
     sprintf(newStr,
-        "tar -zcvf %s -C %s . --xattrs --exclude lost+found --exclude .blankplaceholder --exclude .snapshotbox",
+        "tar -zcvf %s -C %s . --xattrs --exclude lost+found --exclude .blankplaceholder --exclude .snapshotbox --exclude .cache --exclue .cachemeta",
         tarFilename, rootDir
     );
     free(rootDir);
@@ -376,7 +376,6 @@ int restoreSnapshot(long timestamp) {
         return -5;
     }
 
-    // TODO: mem leak
     rebaseChunkTable();
     incALLReference();
     pushChunkTable();

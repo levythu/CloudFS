@@ -25,6 +25,7 @@
 #include "cloudapi.h"
 #include "libs3.h"
 #include "fsfunc.h"
+#include "cache.h"
 
 static Hashtable chunkTable;
 static Hashtable chunkSizeTable;
@@ -85,7 +86,7 @@ void rebaseChunkTable() {
 }
 
 
-void* getChunkRaw(const char *chunkName, long *len) {
+void* nc__getChunkRaw(const char *chunkName, long *len) {
     fprintf(logFile, "[getChunkRaw]\t%s\n", chunkName);
     fflush(logFile);
     char* buf=tReadBuffer=(char*)malloc(sizeof(char)*(fsConfig->max_seg_size+10));
@@ -160,7 +161,7 @@ bool pushChunkTable() {
     return true;
 }
 
-bool putChunkRaw(const char *chunkname, long len, char *content) {
+bool nc__putChunkRaw(const char *chunkname, long len, char *content) {
     tWriteBuffer=content;
     writeBufferLen=len;
 
@@ -168,7 +169,7 @@ bool putChunkRaw(const char *chunkname, long len, char *content) {
     return s==S3StatusOK;
 }
 
-int deleteChunkRaw(const char *chunkname) {
+int nc__deleteChunkRaw(const char *chunkname) {
     if (cloud_delete_object(CONTAINER_NAME, chunkname)!=S3StatusOK) {
         fprintf(logFile, "[deleteChunkRaw] removing error\t\n");
         fflush(logFile);
@@ -184,11 +185,11 @@ void incChunkReference(const char* chunkname, long len, char* content) {
     *tmp=0;
     if (!HPutIfAbsent(chunkTable, chunkname, tmp)) free(tmp);
     else {
-        // upload the chunk content
-        putChunkRaw(chunkname, len, content);
         long* chunkLen=(long*)malloc(sizeof(long));
         *chunkLen=len;
         HPutIfAbsent(chunkSizeTable, chunkname, chunkLen);
+        // upload the chunk content
+        putChunkRaw(chunkname, len, content);
     }
     (*(int*)HGet(chunkTable, chunkname))++;
 }
@@ -217,4 +218,15 @@ bool decChunkReference(const char* chunkname) {
     free(HRemove(chunkTable, chunkname));
     free(HRemove(chunkSizeTable, chunkname));
     return true;
+}
+
+bool putChunkRaw(const char *chunkname, long len, char *content) {
+    return c__putChunkRaw(chunkname, len, content);
+}
+
+int deleteChunkRaw(const char *chunkname) {
+    return c__deleteChunkRaw(chunkname);
+}
+void* getChunkRaw(const char *chunkName, long *len) {
+    return c__getChunkRaw(chunkName, len);
 }

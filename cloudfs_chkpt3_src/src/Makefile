@@ -123,6 +123,7 @@ CLOUDFS_OBJS = $(BUILD)/obj/cloudfs.o \
 			   $(BUILD)/obj/fsfunc.o \
 			   $(BUILD)/obj/chunks.o \
 			   $(BUILD)/obj/snapshot.o \
+			   $(BUILD)/obj/cache.o \
 			   $(BUILD)/obj/main.o
 #You can append other objects
 

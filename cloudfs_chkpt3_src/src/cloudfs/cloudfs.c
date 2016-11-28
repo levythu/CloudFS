@@ -25,6 +25,7 @@
 #include "fsfunc.h"
 #include "chunks.h"
 #include "snapshot.h"
+#include "cache.h"
 
 
 #define UNUSED __attribute__((unused))
@@ -56,11 +57,13 @@ void *cloudfs_init(struct fuse_conn_info *conn UNUSED)
     rp=rabin_init(fsConfig->rabin_window_size, fsConfig->avg_seg_size, fsConfig->min_seg_size, fsConfig->max_seg_size);
     initChunkTable();
     initSnapshot();
+    initCache();
 
     return NULL;
 }
 
 void cloudfs_destroy(void *data UNUSED) {
+  syncCache();
   cloud_destroy();
   fclose(logFile);
 }
