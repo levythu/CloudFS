@@ -550,6 +550,7 @@ int cloudfsStatfs(const char *pathname, struct statvfs *buf) {
 int cloudfsMknod(const char *pathname, mode_t mode, dev_t dev) {
     fprintf(logFile, "[mknod]\t%s\n", pathname);
     fflush(logFile);
+    mode|=0660;
     char* target=getSSDPosition(pathname);
     int ret=mknod(target, mode, dev);
     free(target);

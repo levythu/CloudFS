@@ -295,35 +295,56 @@ int uninstallSnapshot(long timestamp) {
 
 int removeSnapshot(long timestamp) {
     int target;
+    fprintf(logFile2, "[removeSnapshot]\t%ld\n", timestamp);
+    fflush(logFile2);
     if ((target=searchForSnapshot(timestamp))<0) return -1;
     if (isInstalled[target]) return -2;
+    fprintf(logFile2, "[removeSnapshot]\tInstalling....\n");
+    fflush(logFile2);
     if (installSnapshot(timestamp)<0) return -3;
+
+    fprintf(logFile2, "[removeSnapshot]\tCheck old chunkdir to do substract.\n");
+    fflush(logFile2);
 
     char iFolderName[MAX_PATH_LEN];
     char chunkDirPath[MAX_PATH_LEN];
     sprintf(chunkDirPath, "%s.chunkdir", getSnapshotInstallPositionFromTimestamp(iFolderName, timestamp));
 
     FILE* f=fopen(chunkDirPath, "r");
+    fprintf(logFile2, "[removeSnapshot]\tStart substracting.\n");
+    fflush(logFile2);
     if (f) {
         int N, i, useless;
         char chunkName[200];
         useless=fscanf(f, "%d", &N);
+        fprintf(logFile2, "[removeSnapshot]\tSubstracting %d chunks\n", N);
+        fflush(logFile2);
         (void)useless;
         for (i=0; i<N; i++) {
             int count;
             long chunkSize;
             useless=fscanf(f, "%d %ld %s", &count, &chunkSize, chunkName);
+            fprintf(logFile2, "[removeSnapshot]\tSubstracting %s\n", chunkName);
+            fflush(logFile2);
             (void)useless;
             (void)count;
             (void)chunkSize;
             decChunkReference(chunkName);
         }
+        fprintf(logFile2, "[removeSnapshot]\tFinish substracting\n");
+        fflush(logFile2);
         pushChunkTable();
         fclose(f);
     }
 
+    fprintf(logFile2, "[removeSnapshot]\tUninstall & remove.\n");
+    fflush(logFile2);
+
     uninstallSnapshot(timestamp);
     cloud_delete_object(CONTAINER_NAME, getSnapshotNameFromTimestamp(chunkDirPath, timestamp));
+
+    fprintf(logFile2, "[removeSnapshot]\tRearrange snapshot box.\n");
+    fflush(logFile2);
 
     int i;
     for (i=target+1; i<sizeSnapshotBox; i++) {

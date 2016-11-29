@@ -17,6 +17,7 @@
 #include <sys/time.h>
 #include <fcntl.h>
 #include <openssl/md5.h>
+#include <ftw.h>
 #include "dedup.h"
 
 #include "cloudfs.h"
@@ -27,19 +28,45 @@
 #include "fsfunc.h"
 #include "cache.h"
 
+#define UNUSED __attribute__((unused))
+
 CacheBlock cacheLinkHead;
-long totalCacheSize;
+char* ssdCacheFolder;
+
+static long _total;
+static int sum(UNUSED const char *fpath, const struct stat *sb, UNUSED int typeflag) {
+    _total += sb->st_size;
+    return 0;
+}
+long getCacheSize() {
+    _total=0;
+    ftw(ssdCacheFolder, sum, 1);
+    return _total;
+}
+
+static bool evictOneCacheBlock();
 
 // must happend after initChunk;
 void initCache() {
     char* target=getSSDPosition("/.cache/");
+    ssdCacheFolder=getSSDPosition("/.cache/");
     mkdir(target, 0777);
     free(target);
     cacheLinkHead.prev=cacheLinkHead.next=&cacheLinkHead;
     cacheLinkHead.id[0]=0;
-    totalCacheSize=0;
     pullCache();
     pushCache();
+
+    fprintf(logFile2, "[cache]\tInit Cache Folder: %ld\n", getCacheSize());
+    fflush(logFile2);
+
+    while (getCacheSize()>fsConfig->cache_size) {
+        if (!evictOneCacheBlock()) break;
+    }
+    if (getCacheSize()>fsConfig->cache_size) {
+        // remove folder
+        rmdir(ssdCacheFolder);
+    }
 }
 int countLink() {
     int ret=0;
@@ -65,7 +92,6 @@ void pullCache() {
         for (i=0; i<N; i++) {
             CacheBlock* newCacheBlock=(CacheBlock*)malloc(sizeof(CacheBlock));
             useless=fscanf(f, "%d %s", &newCacheBlock->inCloud, newCacheBlock->id);
-            totalCacheSize+=getChunkLen(newCacheBlock->id);
             newCacheBlock->prev=cacheLinkHead.prev;
             newCacheBlock->next=&cacheLinkHead;
             newCacheBlock->prev->next=newCacheBlock;
@@ -177,7 +203,9 @@ bool evictOneCacheBlock() {
     victim->next->prev=victim->prev;
     victim->prev->next=victim->next;
     free(victim);
-    totalCacheSize-=clen;
+
+    fprintf(logFile2, "[cache]\tCache Pool: %ld/%d\n", getCacheSize(), fsConfig->cache_size);
+    fflush(logFile2);
 
     return true;
 }
@@ -194,7 +222,7 @@ void* c__getChunkRaw(const char *chunkname, long *len) {
         // the chunk is too big to fit in the cache. Fetch it directly
         return nc__getChunkRaw(chunkname, len);
     }
-    while (totalCacheSize+*len>fsConfig->cache_size) {
+    while (getCacheSize()+*len>fsConfig->cache_size) {
         evictOneCacheBlock();
     }
     char* content=nc__getChunkRaw(chunkname, len);
@@ -207,7 +235,9 @@ void* c__getChunkRaw(const char *chunkname, long *len) {
     cb->prev=&cacheLinkHead;
     cb->next->prev=cb;
     cb->prev->next=cb;
-    totalCacheSize+=*len;
+
+    fprintf(logFile2, "[cache]\tCache Pool: %ld/%d\n", getCacheSize(), fsConfig->cache_size);
+    fflush(logFile2);
 
     pushCache();
 
@@ -219,7 +249,7 @@ bool c__putChunkRaw(const char *chunkname, long len, char *content) {
         // the chunk is too big to fit in the cache. Fetch it directly
         return nc__putChunkRaw(chunkname, len, content);
     }
-    while (totalCacheSize+len>fsConfig->cache_size) {
+    while (getCacheSize()+len>fsConfig->cache_size) {
         evictOneCacheBlock();
     }
     saveCachedChunk(chunkname, len, content);
@@ -231,7 +261,9 @@ bool c__putChunkRaw(const char *chunkname, long len, char *content) {
     cb->prev=&cacheLinkHead;
     cb->next->prev=cb;
     cb->prev->next=cb;
-    totalCacheSize+=len;
+
+    fprintf(logFile2, "[cache]\tCache Pool: %ld/%d\n", getCacheSize(), fsConfig->cache_size);
+    fflush(logFile2);
 
     pushCache();
     return true;
@@ -243,14 +275,15 @@ int c__deleteChunkRaw(const char *chunkname) {
         if (nc__deleteChunkRaw(chunkname)<0) return -1;
     }
     if (targetCB) {
-        long len=getChunkLen(chunkname);
         char cacheFile[MAX_PATH_LEN];
         unlink(getLocalCacheName(cacheFile, chunkname));
 
         targetCB->next->prev=targetCB->prev;
         targetCB->prev->next=targetCB->next;
         free(targetCB);
-        totalCacheSize-=len;
+
+        fprintf(logFile2, "[cache]\tCache Pool: %ld/%d\n", getCacheSize(), fsConfig->cache_size);
+        fflush(logFile2);
 
         pushCache();
     }

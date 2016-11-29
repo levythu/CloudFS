@@ -127,7 +127,7 @@ int cloudfs_start(struct cloudfs_state *state,
   //logFile=fopen("/tmp/cloudfs.log", "w");
   logFile=fopen("/dev/null", "w+");
 
-  logFile2=fopen("/tmp/cloudfs.log", "w+");
+  logFile2=fopen("/tmp/cloudfs.log", "a");
   //logFile2=fopen("/dev/null", "w+");
 
   int fuse_stat = fuse_main(argc, argv, &cloudfs_operations, NULL);
