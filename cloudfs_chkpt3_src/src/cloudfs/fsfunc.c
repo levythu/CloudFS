@@ -382,6 +382,8 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
 #define IGNORE_FILENAME2 ".blankplaceholder"
 #define IGNORE_FILENAME3 ".snapshotbox"
 #define IGNORE_FILENAME4 ".chunkdir"
+#define IGNORE_FILENAME5 ".cache"
+#define IGNORE_FILENAME6 ".cachemeta"
 int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUSED off_t offset, UNUSED struct fuse_file_info *fi) {
     fprintf(logFile, "[readdir]\t%s\n", pathname);
     fflush(logFile);
@@ -396,6 +398,8 @@ int cloudfsReadDir(const char *pathname, void *buf, fuse_fill_dir_t filler, UNUS
             if (strcmp(ep->d_name, IGNORE_FILENAME2)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
             if (strcmp(ep->d_name, IGNORE_FILENAME3)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
             if (strcmp(ep->d_name, IGNORE_FILENAME4)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
+            if (strcmp(ep->d_name, IGNORE_FILENAME5)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
+            if (strcmp(ep->d_name, IGNORE_FILENAME6)==0 && strcmp(pathname, IGNORE_PATHNAME)==0) continue;
             filler(buf, ep->d_name, NULL, 0);
         }
         if (strcmp(pathname, IGNORE_PATHNAME)==0) {
@@ -1251,6 +1255,8 @@ int cloudfsIOctl(const char *pathname, int cmd, UNUSED void *arg, UNUSED struct 
     if (strcmp(pathname, SNAPSHOT_FD)!=0) return -1;
     if (cmd==CLOUDFS_SNAPSHOT) {
         long ext=createSnapshot();
+        fprintf(logFile, "[snapshot]\t%ld\n", ext);
+        fflush(logFile);
         if (ext<0) return -1;
         pushSnapshot();
         *(unsigned long*)data=(unsigned long)ext;

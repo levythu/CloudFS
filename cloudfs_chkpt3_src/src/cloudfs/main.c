@@ -45,7 +45,7 @@ static struct option longOptionsG[] =
     { 0,					0,							0,   0	}
 };
 
-static void parse_arguments(int argc, char* argv[], 
+static void parse_arguments(int argc, char* argv[],
                             struct cloudfs_state *state) {
     // Default Values
     strcpy(state->ssd_path, "/home/student/mnt/ssd/");
@@ -64,7 +64,7 @@ static void parse_arguments(int argc, char* argv[],
     // Parse args
     while (1) {
         int idx = 0;
-        int c = getopt_long(argc, argv, "s:f:h:a:t:dS:w:m:M:", longOptionsG, &idx);
+        int c = getopt_long(argc, argv, "s:f:h:a:t:dS:w:m:M:c:", longOptionsG, &idx);
 
         if (c == -1) {
             // End of options
@@ -81,10 +81,10 @@ static void parse_arguments(int argc, char* argv[],
         case 'h':
             strcpy(state->hostname, optarg);
             break;
-        case 'a': 
+        case 'a':
             state->ssd_size = atoi(optarg)*1024;
-            break; 
-       case 't': 
+            break;
+       case 't':
             state->threshold = atoi(optarg)*1024;
             break;
        case 'd':
@@ -93,7 +93,7 @@ static void parse_arguments(int argc, char* argv[],
        case 'm':
             state->min_seg_size = atoi(optarg)*1024;
             break;
-       case 'S': 
+       case 'S':
             state->avg_seg_size = atoi(optarg)*1024;
             break;
        case 'M':
@@ -102,7 +102,7 @@ static void parse_arguments(int argc, char* argv[],
        case 'c':
             state->cache_size = atoi(optarg)*1024;
             break;
-       case 'w': 
+       case 'w':
             state->rabin_window_size = atoi(optarg);
             break;
         default:

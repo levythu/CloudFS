@@ -33,7 +33,7 @@ long totalCacheSize;
 // must happend after initChunk;
 void initCache() {
     char* target=getSSDPosition("/.cache/");
-    mkdir(target, 0666);
+    mkdir(target, 0777);
     free(target);
     cacheLinkHead.prev=cacheLinkHead.next=&cacheLinkHead;
     cacheLinkHead.id[0]=0;
@@ -209,7 +209,7 @@ void* c__getChunkRaw(const char *chunkname, long *len) {
     cb->prev->next=cb;
     totalCacheSize+=*len;
 
-    pushChunkTable();
+    pushCache();
 
     return content;
 }
@@ -233,7 +233,7 @@ bool c__putChunkRaw(const char *chunkname, long len, char *content) {
     cb->prev->next=cb;
     totalCacheSize+=len;
 
-    pushChunkTable();
+    pushCache();
     return true;
 }
 
@@ -252,7 +252,7 @@ int c__deleteChunkRaw(const char *chunkname) {
         free(targetCB);
         totalCacheSize-=len;
 
-        pushChunkTable();
+        pushCache();
     }
     return 0;
 }
@@ -269,6 +269,6 @@ void syncCache() {
         }
         p=p->next;
     }
-    pushChunkTable();
+    pushCache();
     return;
 }

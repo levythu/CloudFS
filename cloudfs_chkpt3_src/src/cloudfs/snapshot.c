@@ -133,7 +133,7 @@ void* generateTarCmd(const char* tarName) {
     char* tarFilename=getSSDPositionSlash(tarName);
     char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
     sprintf(newStr,
-        "tar -zcvf %s -C %s . --xattrs --exclude lost+found --exclude .blankplaceholder --exclude .snapshotbox --exclude .cache --exclue .cachemeta",
+        "tar -zcvf %s -C %s . --xattrs --exclude lost+found --exclude .blankplaceholder --exclude .snapshotbox --exclude .cache --exclude .cachemeta",
         tarFilename, rootDir
     );
     free(rootDir);
@@ -148,7 +148,7 @@ static int put_buffer(char *buffer, int bufferLength) {
 
 long createSnapshot() {
     if (sizeSnapshotBox>=CLOUDFS_MAX_NUM_SNAPSHOTS) return -1;
-    if (installedSnapshot>0) return -1;
+    if (installedSnapshot>0) return -2;
     long currentTS=unixMilli();
     fprintf(logFile, "[createSnapshot]\tCreating snapshot at %ld\n", currentTS);
     fflush(logFile);
@@ -164,12 +164,12 @@ long createSnapshot() {
     struct stat tstat;
     if (stat(tarFilepath, &tstat)<0) {
         free(tarFilepath);
-        return -1;
+        return -3;
     }
     infile=fopen(tarFilepath, "rb");
     if (infile == NULL) {
         free(tarFilepath);
-        return -1;
+        return -4;
     }
     S3Status s=cloud_put_object(CONTAINER_NAME, tarName, tstat.st_size, put_buffer);
     fclose(infile);
