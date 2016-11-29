@@ -124,7 +124,7 @@ int cloudfs_start(struct cloudfs_state *state,
   fsConfig=&state_;
   openfileTable=NewHashTable();
 
-  //logFile=fopen("/tmp/cloudfs.log", "w");
+  //logFile=fopen("/tmp/cloudfs.log", "a");
   logFile=fopen("/dev/null", "w+");
 
   logFile2=fopen("/tmp/cloudfs.log", "a");

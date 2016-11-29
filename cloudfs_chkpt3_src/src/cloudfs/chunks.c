@@ -212,6 +212,7 @@ bool decChunkReference(const char* chunkname) {
     fprintf(logFile, "[decChunkReference]\t%s\n", chunkname);
     fflush(logFile);
     int* t=(int*)HGet(chunkTable, chunkname);
+    if (!t) return false;
     (*t)--;
     if (*t>0) return false;
     deleteChunkRaw(chunkname);

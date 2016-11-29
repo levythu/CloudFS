@@ -33,6 +33,7 @@
 #define XATTR_ON_CLOUD_CHUNK "//chunked"
 #define XATTR_M_TIME "user.cloudfs.mtime"
 #define XATTR_A_TIME "user.cloudfs.atime"
+#define XATTR_ACL "user.cloudfs.acl"
 #define XATTR_SIZE "user.cloudfs.size"
 #define XATTR_BNUM "user.cloudfs.blocknum"
 #define SNAPSHOT_FD "/.snapshot"
@@ -59,6 +60,8 @@ rabinpoly_t *rp=NULL;
 ** For a chunked file, it is chunked on cloud, and store its chunklist containing
 **      its chunks and startPosition on disk, with XATTR_ON_CLOUD==XATTR_ON_CLOUD_CHUNK
 */
+
+void recoveryChmod(const char *filename);
 
 typedef struct _openedFile {
     int refCount;
@@ -306,6 +309,7 @@ int cloudfsGetAttr(const char *pathname, struct stat *tstat) {
         return 0;
     }
     char* target=getSSDPosition(pathname);
+    recoveryChmod(target);
     int ret=stat(target, tstat);
     if (ret<0) {
         free(target);
@@ -583,14 +587,28 @@ int cloudfsUTimens(const char *pathname, const struct timespec tv[2]) {
     return 0;
 }
 
+void recoveryChmod(const char *filename) {
+    char attrBuf[4096];
+    int len=getxattr(filename, XATTR_ACL, attrBuf, 4096);
+    if (len==-1) {
+        return;
+    }
+    attrBuf[len]=0;
+    long acl;
+    sscanf(attrBuf, "%ld", &acl);
+    chmod(filename, (mode_t)acl);
+}
 int cloudfsChmod(const char * pathname, mode_t mode) {
     fprintf(logFile, "[chmod]\t%s: %d\n", pathname, (int)mode);
     fflush(logFile);
     char* target=getSSDPosition(pathname);
-    int ret=chmod(target, mode);
+    chmod(target, mode|0666);
+    char attrBuf[4096];
+    sprintf(attrBuf, "%ld", (long)mode);
+    setxattr(target, XATTR_ACL, attrBuf, strlen(attrBuf), 0);
+    chmod(target, mode);
     free(target);
-    if (ret>=0) return ret;
-    return cloudfs_error("chmod error");
+    return 0;
 }
 
 // if the file is chunked, it is treated as no name on the cloud.
@@ -873,6 +891,7 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
             ofr->mode=0;
         }
     }
+    recoveryChmod(target);
     int ret=open(target, fi->flags);
     ofr->refCount++;
     if (ret<0) {
@@ -1227,6 +1246,9 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
 int cloudfsGetXAttr(const char *pathname, const char *name, char *value, size_t size) {
     fprintf(logFile, "[getxaddr]\t%s\n", pathname);
     fflush(logFile);
+    if (strcmp(pathname, SNAPSHOT_FD)==0) {
+        pathname="/.blankplaceholder";
+    }
     char* target=getSSDPosition(pathname);
     int ret=getxattr(target, name, value, size);
     free(target);
@@ -1248,6 +1270,7 @@ int cloudfsAccess(const char *pathname, int mask) {
     fprintf(logFile, "[access]\t%s\n", pathname);
     fflush(logFile);
     char* target=getSSDPosition(pathname);
+    recoveryChmod(target);
     int ret=access(target, mask);
     free(target);
     return ret;

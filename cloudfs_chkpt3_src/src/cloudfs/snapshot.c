@@ -141,6 +141,15 @@ void* generateTarCmd(const char* tarName) {
     return newStr;
 }
 
+void* generateChmodCmd(const char* targetPath, const char* mode) {
+    char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
+    sprintf(newStr,
+        "chmod -R %s %s",
+        mode, targetPath
+    );
+    return newStr;
+}
+
 static FILE *infile;
 static int put_buffer(char *buffer, int bufferLength) {
     return fread(buffer, 1, bufferLength, infile);
@@ -152,9 +161,14 @@ long createSnapshot() {
     long currentTS=unixMilli();
     fprintf(logFile, "[createSnapshot]\tCreating snapshot at %ld\n", currentTS);
     fflush(logFile);
-    char tarName[MAX_PATH_LEN];
-    char* cmdLine=generateTarCmd(getSnapshotNameFromTimestamp(tarName, currentTS));
+
+    char* cmdLine=generateChmodCmd(fsConfig->ssd_path, "+w");
     int status=system(cmdLine);
+    free(cmdLine);
+
+    char tarName[MAX_PATH_LEN];
+    cmdLine=generateTarCmd(getSnapshotNameFromTimestamp(tarName, currentTS));
+    status=system(cmdLine);
     free(cmdLine);
     if (status<0 || !WIFEXITED(status)) {
         return -1;
@@ -210,14 +224,7 @@ void* generateUntarCmd(const char* tarABSPath, const char* targetPath) {
     );
     return newStr;
 }
-void* generateChmodCmd(const char* targetPath, const char* mode) {
-    char* newStr=malloc(sizeof(char)*MAX_PATH_LEN);
-    sprintf(newStr,
-        "chmod -R %s %s",
-        mode, targetPath
-    );
-    return newStr;
-}
+
 
 static FILE *outfile;
 static int get_buffer(const char *buffer, int bufferLength) {
