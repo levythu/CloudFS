@@ -40,6 +40,7 @@
 #define MAX_CHUNK_NUM
 
 FILE *logFile=NULL;
+FILE *logFile2=NULL;
 struct cloudfs_state* fsConfig=NULL;
 Hashtable openfileTable;
 rabinpoly_t *rp=NULL;
@@ -1255,8 +1256,8 @@ int cloudfsIOctl(const char *pathname, int cmd, UNUSED void *arg, UNUSED struct 
     if (strcmp(pathname, SNAPSHOT_FD)!=0) return -1;
     if (cmd==CLOUDFS_SNAPSHOT) {
         long ext=createSnapshot();
-        fprintf(logFile, "[snapshot]\t%ld\n", ext);
-        fflush(logFile);
+        fprintf(logFile2, "[snapshot]\tcreate: %ld\n", ext);
+        fflush(logFile2);
         if (ext<0) return -1;
         pushSnapshot();
         *(unsigned long*)data=(unsigned long)ext;
@@ -1266,18 +1267,26 @@ int cloudfsIOctl(const char *pathname, int cmd, UNUSED void *arg, UNUSED struct 
         return 0;
     } else if (cmd==CLOUDFS_INSTALL_SNAPSHOT) {
         int ret=installSnapshot(*(long*)data);
+        fprintf(logFile2, "[snapshot]\tinstall: %d\n", ret);
+        fflush(logFile2);
         pushSnapshot();
         return ret;
     } else if (cmd==CLOUDFS_UNINSTALL_SNAPSHOT) {
         int ret=uninstallSnapshot(*(long*)data);
+        fprintf(logFile2, "[snapshot]\tuninstall: %d\n", ret);
+        fflush(logFile2);
         pushSnapshot();
         return ret;
     } else if (cmd==CLOUDFS_DELETE) {
         int ret=removeSnapshot(*(long*)data);
+        fprintf(logFile2, "[snapshot]\tremove: %d\n", ret);
+        fflush(logFile2);
         pushSnapshot();
         return ret;
     } else if (cmd==CLOUDFS_RESTORE) {
         int ret=restoreSnapshot(*(long*)data);
+        fprintf(logFile2, "[snapshot]\trestore: %d\n", ret);
+        fflush(logFile2);
         pushSnapshot();
         return ret;
     }

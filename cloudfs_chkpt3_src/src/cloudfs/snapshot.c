@@ -373,7 +373,7 @@ int restoreSnapshot(long timestamp) {
     free(cmdLine);
     free(iFolderName);
     if (status<0 || !WIFEXITED(status)) {
-        return -5;
+        return -6;
     }
 
     rebaseChunkTable();

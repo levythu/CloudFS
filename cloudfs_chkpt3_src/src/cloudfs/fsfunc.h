@@ -23,6 +23,7 @@ extern int cloudfsIOctl(const char *pathname, int cmd, void *arg, struct fuse_fi
 extern void cloudfsInitPlaceholder();
 
 extern FILE *logFile;
+extern FILE *logFile2;
 extern struct cloudfs_state* fsConfig;
 extern Hashtable openfileTable;
 extern rabinpoly_t *rp;
