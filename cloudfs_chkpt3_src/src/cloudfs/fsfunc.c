@@ -40,6 +40,8 @@
 
 #define MAX_CHUNK_NUM
 
+const uint64_t INVALID_FD=0x1994070119;
+
 FILE *logFile=NULL;
 FILE *logFile2=NULL;
 struct cloudfs_state* fsConfig=NULL;
@@ -66,6 +68,7 @@ void recoveryChmod(const char *filename);
 typedef struct _openedFile {
     int refCount;
     int mode;   // 0 for normal, 1 for dedup
+    int subfd;
 
     // the following members are valid only mode==1; both chunkName and chunkPosition
     // are array[0..chunkCount-1], and chunkPosition is an increasing array.
@@ -109,6 +112,7 @@ void printOF(openedFile* ofr) {
 openedFile* makeDupOF(openedFile* ofr) {
     openedFile* ret=(openedFile*)malloc(sizeof(openedFile));
     ret->refCount=ofr->refCount;
+    ret->subfd=ofr->subfd;
     ret->mode=ofr->refCount;
     ret->capacity=ofr->capacity;
     ret->chunkCount=ofr->chunkCount;
@@ -490,6 +494,11 @@ int cloudfsTruncate(const char *pathname, off_t length) {
             fclose(outfile);
             // TODO: bug: when truncating and write it above threshold. Crash.
             free(smallFileContent);
+            ofr=(openedFile*)HGet(openfileTable, target);
+            if (ofr) {
+                ofr->mode=0;
+                ofr->subfd=open(target, O_RDWR);
+            }
             if (setxattr(target, XATTR_ON_OLDCLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0)
                 cloudfs_error("disposeFile: put xattr error");
             if (setxattr(target, XATTR_ON_CLOUD, XATTR_ON_CLOUD_NOV, strlen(XATTR_ON_CLOUD_NOV), 0)<0)
@@ -523,8 +532,6 @@ int cloudfsTruncate(const char *pathname, off_t length) {
                 cloudfsRelease(pathname, &fi);
             }
         }
-        ofr=(openedFile*)HGet(openfileTable, target);
-        if (ofr) ofr->mode=0;
         free(target);
         pushChunkTable();
         return 0;
@@ -866,6 +873,7 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     char* target=getSSDPosition(pathname);
     openedFile* ofr=(openedFile*)malloc(sizeof(openedFile));
     ofr->refCount=0;
+    ofr->subfd=-1;
     ofr->totalLen=-1;
     ofr->dirty=false;
     if (!HPutIfAbsent(openfileTable, target, ofr)) {
@@ -881,7 +889,7 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
         } else if (res==1) {
             // chunked file, load the file content into memory
             ofr->mode=1;
-            fi->fh=0;
+            fi->fh=INVALID_FD;
             if (loadInChunkedFile(target, ofr)<0) {
                 // may have mem leak
                 free(target);
@@ -895,7 +903,7 @@ int cloudfsOpen(const char *pathname, struct fuse_file_info *fi) {
     int ret=open(target, fi->flags);
     ofr->refCount++;
     if (ret<0) {
-        fi->fh=0;
+        fi->fh=INVALID_FD;
         cloudfsRelease(pathname, fi);
         return cloudfs_error("open error");
     }
@@ -919,10 +927,12 @@ int cloudfsRelease(const char *pathname, struct fuse_file_info *fi) {
     openedFile* ofr=(openedFile*)HGet(openfileTable, target);
     ofr->refCount--;
     if (ofr->mode==0) {
-        close(fi->fh);
+        if ((int)fi->fh!=ofr->subfd)
+            close(fi->fh);
     }
     if (ofr->refCount==0) {
         if (ofr->mode==0) {
+            if ((int)fi->fh==ofr->subfd) close(fi->fh);
             if (disposeFile(target)<0) {
                 cloudfs_error("open error: error in dispose");
                 return -1;
@@ -946,7 +956,7 @@ int cloudfsFsync(UNUSED const char* pathname, int isdatasync, struct fuse_file_i
     fprintf(logFile, "[fsync]\t%s\n", pathname);
     fflush(logFile);
     int ret=0;
-    if (fi->fh>0) {
+    if (fi->fh!=INVALID_FD) {
         if (isdatasync) ret=(fdatasync(fi->fh));
         else ret=(fsync(fi->fh));
     }
@@ -966,6 +976,7 @@ int cloudfsRead(const char *pathname, char *buf, size_t size, off_t offset, stru
     openedFile* ofr=(openedFile*)HGet(openfileTable, target);
     free(target);
     if (ofr->mode==0) {
+        if (fi->fh==INVALID_FD) fi->fh=ofr->subfd;
         if (lseek(fi->fh, offset, SEEK_SET)==-1) return cloudfs_error("read error");
         int transferred=0;
         while (size>0) {
@@ -1069,7 +1080,7 @@ void convertFileToChunks(const char* filename, openedFile* ofr) {
 }
 
 int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offset, struct fuse_file_info* fi) {
-    fprintf(logFile, "[write]\t%s\n", pathname);
+    fprintf(logFile, "[write]\t%s %d\n", pathname, (int)fi->fh);
     fflush(logFile);
     if (size==0) return 0;
 
@@ -1077,6 +1088,7 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
     openedFile* ofr=(openedFile*)HGet(openfileTable, target);
 
     if (ofr->mode==0) {
+        if (fi->fh==INVALID_FD) fi->fh=ofr->subfd;
         if (lseek(fi->fh, offset, SEEK_SET)==-1) return cloudfs_error("write error");
         int transferred=0;
         while (size>0) {
@@ -1089,7 +1101,7 @@ int cloudfsWrite(const char* pathname, const char *buf, size_t size, off_t offse
         if (!fsConfig->no_dedup && (long)(size+offset)>fsConfig->threshold) {
             close(fi->fh);
             convertFileToChunks(target, ofr);
-            fi->fh=0;
+            fi->fh=INVALID_FD;
         }
         free(target);
         return transferred;
